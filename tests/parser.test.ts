@@ -255,3 +255,64 @@ test("parse drop call", () => {
     if (s.expr.kind === "call") expect(s.expr.fn).toBe("drop");
   }
 });
+
+test("parse if/else", () => {
+  const stmts = parseFnBody(`if cond {\n    a()\n} else {\n    b()\n}`);
+  expect(stmts).toHaveLength(1);
+  const s = stmts[0];
+  expect(s.kind).toBe("if");
+  if (s.kind === "if") {
+    expect(s.cond).toEqual({ kind: "var", name: "cond", pos: expect.any(Object) });
+    expect(s.then).toHaveLength(1);
+    expect(s.else_).toHaveLength(1);
+  }
+});
+
+test("parse loop with break", () => {
+  const stmts = parseFnBody(`loop {\n    break\n}`);
+  expect(stmts).toHaveLength(1);
+  const s = stmts[0];
+  expect(s.kind).toBe("loop");
+  if (s.kind === "loop") {
+    expect(s.body).toHaveLength(1);
+    expect(s.body[0].kind).toBe("break");
+  }
+});
+
+test("parse match — unit variant arm + block arm", () => {
+  const stmts = parseFnBody(
+    `match next(remaining) {\n    None => break,\n    Some(msg, rest) => {\n        send_message(c, msg)?\n        remaining = rest\n    },\n}`
+  );
+  expect(stmts).toHaveLength(1);
+  const s = stmts[0];
+  expect(s.kind).toBe("match");
+  if (s.kind === "match") {
+    expect(s.arms).toHaveLength(2);
+    const arm0 = s.arms[0];
+    expect(arm0.pattern).toEqual({ kind: "variant", name: "None", binds: [] });
+    expect(arm0.body).toHaveLength(1);
+    expect(arm0.body[0].kind).toBe("break");
+    const arm1 = s.arms[1];
+    expect(arm1.pattern).toEqual({ kind: "variant", name: "Some", binds: ["msg", "rest"] });
+    expect(arm1.body).toHaveLength(2);
+  }
+});
+
+test("parse match — wildcard arm", () => {
+  const stmts = parseFnBody(`match x {\n    _ => break,\n}`);
+  const s = stmts[0];
+  if (s.kind === "match") {
+    expect(s.arms[0].pattern).toEqual({ kind: "wildcard" });
+  }
+});
+
+test("parse select statement", () => {
+  const stmts = parseFnBody("select Read, Write from Fs");
+  expect(stmts).toHaveLength(1);
+  const s = stmts[0];
+  expect(s.kind).toBe("select");
+  if (s.kind === "select") {
+    expect(s.atoms).toEqual(["Read", "Write"]);
+    expect(s.from).toBe("Fs");
+  }
+});

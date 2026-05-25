@@ -413,13 +413,83 @@ class Parser {
     return this.parseExprFromName(name, p);
   }
 
-  private parseIf(_p: Pos): Stmt { throw new Error("TODO: parseIf"); }
-  private parseLoop(_p: Pos): Stmt { throw new Error("TODO: parseLoop"); }
-  private parseMatchStmt(_p: Pos): Stmt { throw new Error("TODO: parseMatch"); }
-  private parseSelect(_p: Pos): Stmt { throw new Error("TODO: parseSelect"); }
+  private parseIf(p: Pos): Stmt {
+    this.ident(); // consume "if"
+    const cond = this.parseExpr();
+    const then = this.parseBlock();
+    this.skip();
+    if (this.peekIdent() !== "else") this.err("expected 'else' after if block");
+    this.ident(); // consume "else"
+    const else_ = this.parseBlock();
+    return { kind: "if", cond, then, else_, pos: p };
+  }
+
+  private parseLoop(p: Pos): Stmt {
+    this.ident(); // consume "loop"
+    const body = this.parseBlock();
+    return { kind: "loop", body, pos: p };
+  }
 
   private parsePattern(): Pattern {
-    throw new Error("TODO");
+    this.skip();
+    if (this.peek() === "_") {
+      this.advance();
+      return { kind: "wildcard" };
+    }
+    const name = this.ident();
+    this.skip();
+    const binds: string[] = [];
+    if (this.peek() === "(") {
+      this.advance();
+      this.skip();
+      while (this.peek() !== ")") {
+        binds.push(this.ident());
+        this.skip();
+        if (this.peek() === ",") { this.advance(); this.skip(); }
+      }
+      this.expect(")");
+    }
+    return { kind: "variant", name, binds };
+  }
+
+  private parseMatchStmt(p: Pos): Stmt {
+    this.ident(); // consume "match"
+    const expr = this.parseExpr();
+    this.expect("{");
+    const arms: MatchArm[] = [];
+    this.skip();
+    while (this.peek() !== "}") {
+      const pattern = this.parsePattern();
+      this.skip();
+      this.expect("=>");
+      this.skip();
+      let body: Stmt[];
+      if (this.peek() === "{") {
+        body = this.parseBlock();
+      } else {
+        body = [this.parseStmt()];
+      }
+      this.skip();
+      if (this.peek() === ",") { this.advance(); this.skip(); }
+      arms.push({ pattern, body });
+    }
+    this.expect("}");
+    return { kind: "match", expr, arms, pos: p };
+  }
+
+  private parseSelect(p: Pos): Stmt {
+    this.ident(); // consume "select"
+    const atoms: string[] = [];
+    atoms.push(this.ident());
+    this.skip();
+    while (this.peek() === ",") {
+      this.advance();
+      atoms.push(this.ident());
+      this.skip();
+    }
+    this.expect("from");
+    const from = this.ident();
+    return { kind: "select", atoms, from, pos: p };
   }
 }
 
