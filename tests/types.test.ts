@@ -4,6 +4,9 @@ import {
   resolveType, inferParamMode, buildTypeEnv,
 } from "../src/types";
 import { Type } from "../src/ast";
+import * as fs from "fs";
+import * as path from "path";
+import { parse } from "../src/parser";
 
 describe("types module data structures", () => {
   it("can construct a FitType.plain value", () => {
@@ -214,5 +217,180 @@ describe("inferParamMode", () => {
     // Result-typed or unit-typed params produce baseName="" in buildTypeEnv; never move.
     const ret: Type = { kind: "named", name: "AuthToken", typeArg: null };
     expect(inferParamMode("", ret)).toBe("lend");
+  });
+});
+
+describe("buildTypeEnv — payment.fit", () => {
+  let env!: TypeEnv;
+  beforeAll(() => {
+    const src = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf8");
+    env = buildTypeEnv(parse(src, "payment.fit"));
+  });
+
+  it("registers AuthToken as a linear resource with cleanup void_token", () => {
+    expect(env.resources.get("AuthToken")).toEqual({
+      name: "AuthToken", typeParam: null, cleanup: "void_token", fallback: false,
+    });
+  });
+
+  it("does not register capability ChargeCard as a resource", () => {
+    expect(env.resources.has("ChargeCard")).toBe(false);
+  });
+
+  it("registers validate_card with cap [Net]", () => {
+    const sig = env.functions.get("validate_card");
+    expect(sig).toBeDefined();
+    expect(sig!.caps).toEqual(["Net"]);
+  });
+
+  it("validate_card: card param is lend — CardDetails not in Result<AuthToken, ...>", () => {
+    const sig = env.functions.get("validate_card");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "card", mode: "lend" });
+  });
+
+  it("validate_card: returnType ok is a resource (AuthToken), err is plain", () => {
+    expect.assertions(4);
+    const sig = env.functions.get("validate_card");
+    expect(sig).toBeDefined();
+    const ret = sig!.returnType;
+    expect(ret.kind).toBe("result");
+    if (ret.kind === "result") {
+      expect(ret.ok.kind).toBe("resource");
+      expect(ret.err.kind).toBe("plain");
+    }
+  });
+
+  it("execute_charge has caps [Net, ChargeCard]", () => {
+    const sig = env.functions.get("execute_charge");
+    expect(sig).toBeDefined();
+    expect(sig!.caps).toEqual(["Net", "ChargeCard"]);
+  });
+
+  it("execute_charge: token param is lend — AuthToken not in Result<Receipt, ...> (known gap)", () => {
+    // execute_charge semantically consumes the auth token (one-time use), but the heuristic
+    // returns lend because AuthToken does not appear in Result<Receipt, PaymentError>.
+    // The checker in Step 3 will record cleanup firing for token at scope exit — a false
+    // double-close event — but this does not cause the canonical program to be rejected.
+    const sig = env.functions.get("execute_charge");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "token", mode: "lend" });
+  });
+});
+
+describe("buildTypeEnv — smtp.fit", () => {
+  let env!: TypeEnv;
+  beforeAll(() => {
+    const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
+    env = buildTypeEnv(parse(src, "smtp.fit"));
+  });
+
+  it("registers SmtpConn as a resource with typeParam S", () => {
+    expect(env.resources.get("SmtpConn")).toEqual({
+      name: "SmtpConn", typeParam: "S", cleanup: "tcp_force_close", fallback: false,
+    });
+  });
+
+  it("registers SessionError alias with members [SmtpError, IoError]", () => {
+    expect(env.aliases.get("SessionError")).toEqual(["SmtpError", "IoError"]);
+  });
+
+  it("connect: host param is lend — String not in Result<SmtpConn<Fresh>, ...>", () => {
+    const sig = env.functions.get("connect");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "host", mode: "lend" });
+  });
+
+  it("greet: c param is move — SmtpConn appears in Result<SmtpConn<Greeted>, ...>", () => {
+    const sig = env.functions.get("greet");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "c", mode: "move" });
+  });
+
+  it("auth: c is move, creds is lend", () => {
+    const sig = env.functions.get("auth");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "c",     mode: "move" });
+    expect(sig!.params[1]).toMatchObject({ name: "creds", mode: "lend" });
+  });
+
+  it("send_message: c is lend — SmtpConn not in Result<(), ...> (correct)", () => {
+    const sig = env.functions.get("send_message");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "c", mode: "lend" });
+  });
+
+  it("close: c is lend — SmtpConn not in Result<(), ...> (known gap: close actually consumes c)", () => {
+    const sig = env.functions.get("close");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "c", mode: "lend" });
+  });
+
+  it("greet: returnType ok is SmtpConn<Greeted> resource", () => {
+    expect.assertions(3);
+    const sig = env.functions.get("greet");
+    expect(sig).toBeDefined();
+    const ret = sig!.returnType;
+    expect(ret.kind).toBe("result");
+    if (ret.kind === "result") {
+      expect(ret.ok).toEqual({
+        kind: "resource", mode: "linear",
+        name: "SmtpConn", typeState: "Greeted", cleanup: "tcp_force_close", fallback: false,
+      });
+    }
+  });
+
+  it("deliver_batch: c is lend — SmtpConn not in Result<(), ...>", () => {
+    const sig = env.functions.get("deliver_batch");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "c", mode: "lend" });
+  });
+
+  it("run_session: returnType is Result<unit, SessionError alias>", () => {
+    expect.assertions(4);
+    const sig = env.functions.get("run_session");
+    expect(sig).toBeDefined();
+    const ret = sig!.returnType;
+    expect(ret.kind).toBe("result");
+    if (ret.kind === "result") {
+      expect(ret.ok.kind).toBe("unit");
+      expect(ret.err).toEqual({ kind: "alias", mode: "unrestricted", name: "SessionError", members: ["SmtpError", "IoError"] });
+    }
+  });
+});
+
+describe("buildTypeEnv — edge cases", () => {
+  it("handles empty program — all maps empty", () => {
+    const env = buildTypeEnv({ decls: [] });
+    expect(env.resources.size).toBe(0);
+    expect(env.aliases.size).toBe(0);
+    expect(env.functions.size).toBe(0);
+  });
+
+  it("registers zero-param function with empty params array", () => {
+    const prog = parse("fn noop() -> ()", "test.fit");
+    const env  = buildTypeEnv(prog);
+    const sig  = env.functions.get("noop");
+    expect(sig).toBeDefined();
+    expect(sig!.params).toHaveLength(0);
+    expect(sig!.returnType).toEqual({ kind: "unit", mode: "unrestricted" });
+  });
+
+  it("registers resource with fallback cleanup correctly", () => {
+    const prog = parse("resource R { f: X, cleanup: fallback force_close }", "test.fit");
+    const env  = buildTypeEnv(prog);
+    expect(env.resources.get("R")).toEqual({
+      name: "R", typeParam: null, cleanup: "force_close", fallback: true,
+    });
+  });
+
+  it("record type in function signature resolves to plain unrestricted", () => {
+    // records are not in the resources map — the checker handles transitively-linear
+    // records in Step 3; here they correctly resolve as plain unrestricted.
+    const prog = parse("record Pt { x: Int } fn origin() -> Pt", "test.fit");
+    const env  = buildTypeEnv(prog);
+    const sig  = env.functions.get("origin");
+    expect(sig).toBeDefined();
+    expect(sig!.returnType).toEqual({ kind: "plain", mode: "unrestricted", name: "Pt" });
   });
 });

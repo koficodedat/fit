@@ -69,6 +69,39 @@ export function inferParamMode(paramBaseName: string, returnType: Type): ParamMo
   return typeContainsName(returnType, paramBaseName) ? "move" : "lend";
 }
 
-export function buildTypeEnv(_program: Program): TypeEnv {
-  throw new Error("not implemented");
+export function buildTypeEnv(program: Program): TypeEnv {
+  const resources = new Map<string, ResourceInfo>();
+  const aliases   = new Map<string, string[]>();
+  const functions = new Map<string, FunctionSig>();
+
+  for (const decl of program.decls) {
+    if (decl.kind === "resource") {
+      resources.set(decl.name, {
+        name: decl.name, typeParam: decl.typeParam,
+        cleanup: decl.cleanup.fn, fallback: decl.cleanup.fallback,
+      });
+    } else if (decl.kind === "type_alias") {
+      aliases.set(decl.name, decl.members);
+      // decl.members and decl.caps are stored by reference — AST is read-only after parsing.
+    }
+  }
+
+  // resolveEnv intentionally excludes functions: resolveType cannot access a partially-built
+  // functions map, making the two-pass boundary enforced by the type system.
+  const resolveEnv: ResolveEnv = { resources, aliases };
+
+  for (const decl of program.decls) {
+    if (decl.kind === "fn") {
+      const returnType = resolveType(decl.returnType, resolveEnv);
+      const params: ResolvedParam[] = decl.params.map(p => {
+        const type_    = resolveType(p.type_, resolveEnv);
+        const baseName = p.type_.kind === "named" ? p.type_.name : "";
+        const mode     = inferParamMode(baseName, decl.returnType);
+        return { name: p.name, type_, mode };
+      });
+      functions.set(decl.name, { name: decl.name, params, caps: decl.caps, returnType });
+    }
+  }
+
+  return { resources, aliases, functions };
 }
