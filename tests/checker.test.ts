@@ -958,3 +958,154 @@ describe("capability checker gap coverage", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
+
+describe("holistic gap coverage", () => {
+  it("use-after-move via move-mode call produces exactly one error (not two)", () => {
+    // BUG-1 regression: consumeBinding must not double-report already-moved
+    const src = `
+      fn make_tok() -> Tok
+      fn take_tok(t: Tok) -> Tok
+      fn test() -> () {
+        let t = make_tok()
+        take_tok(t)
+        take_tok(t)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    // Exactly one "already been moved" error for the second take_tok(t) call
+    const moveErrors = errors.filter(e => e.message.includes("already been moved"));
+    expect(moveErrors).toHaveLength(1);
+  });
+
+  it("empty match produces no false-positive errors on linear bindings", () => {
+    // BUG-2 regression: empty branches in mergeScopes must not mark bindings as moved
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn make_val() -> String
+      fn test() -> () {
+        let f = make_foo()
+        match make_val() {}
+        drop(f)
+      }
+    `;
+    // Before fix: match marks f as moved, so drop(f) produces "already been moved"
+    // After fix: match with no arms is a no-op for binding state, drop(f) is fine
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("wrong typestate AND missing cap on same call — both errors reported", () => {
+    const src = `
+      enum State { Fresh, Ready }
+      resource Conn<S> { sock: Socket, cleanup: force_close }
+      fn ready_op(c: Conn<Ready>) using Net -> ()
+      fn test(c: Conn<Fresh>) -> () {
+        ready_op(c)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    // One error for wrong typestate (Fresh != Ready), one for missing Net
+    expect(errors.some(e => e.message.includes("typestate") || e.message.includes("Fresh"))).toBe(true);
+    expect(errors.some(e => e.message.includes("missing capability 'Net'"))).toBe(true);
+  });
+
+  it("select inside match arm does NOT make the atom available after the match", () => {
+    const src = `
+      capability Fs
+      enum Choice { A, B }
+      fn get_choice() -> Choice
+      fn needs_read() using Read -> ()
+      fn do_work() using Fs -> () {
+        match get_choice() {
+          A => {
+            select Read from Fs
+          },
+          B => {},
+        }
+        needs_read()
+      }
+    `;
+    // After the match, Read should NOT be in scope — it was only selected in one arm
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("missing capability 'Read'"))).toBe(true);
+  });
+
+  it("select inside loop body enables cap-requiring calls within the same loop iteration", () => {
+    const src = `
+      capability Fs
+      fn needs_read() using Read -> ()
+      fn do_loop() using Fs -> () {
+        loop {
+          select Read from Fs
+          needs_read()
+          break
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("after loop containing select, the atom is NOT available post-loop", () => {
+    const src = `
+      capability Fs
+      fn needs_read() using Read -> ()
+      fn do_loop() using Fs -> () {
+        loop {
+          select Read from Fs
+          break
+        }
+        needs_read()
+      }
+    `;
+    // Read was only selected inside the loop body (cloned caps) — not in outer scope
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("missing capability 'Read'"))).toBe(true);
+  });
+
+  it("function with linear param consumed by move call — returns normally with no error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn consume_foo(f: Foo) -> Foo
+      fn test(f: Foo) -> Foo {
+        consume_foo(f)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("rebind of a linear binding produces no error — old value is auto-cleaned", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn do_rebind() -> () {
+        let mut f = make_foo()
+        f = make_foo()
+        drop(f)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("nested if inside loop — cap isolation chains correctly", () => {
+    const src = `
+      capability Fs
+      fn cond_check() -> String
+      fn needs_read() using Read -> ()
+      fn do_work() using Fs -> () {
+        loop {
+          if cond_check() {
+            select Read from Fs
+            needs_read()
+          } else {
+            needs_read()
+          }
+          break
+        }
+      }
+    `;
+    // In else-branch: Read was only selected in then-branch (cloned caps per branch)
+    const errors = check(parse(src, "test.fit"));
+    // The else-branch needs_read() should error (Read not in scope)
+    expect(errors.some(e => e.message.includes("missing capability 'Read'"))).toBe(true);
+  });
+});

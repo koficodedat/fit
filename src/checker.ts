@@ -249,6 +249,7 @@ function cloneCaps(caps: CapScope): CapScope {
 
 function mergeScopes(preScope: Scope, branches: Scope[], errors: CheckError[], pos: Pos): Scope {
   const result = cloneScope(preScope);
+  if (branches.length === 0) return result;
   for (const [name, preBind] of preScope) {
     if (preBind.type_.mode !== "linear" || !preBind.owned || preBind.moved) continue;
     const movedIn = branches.map(b => b.get(name)?.moved ?? false);
@@ -276,10 +277,7 @@ function snapshotTypestates(scope: Scope): Map<string, string | null> {
 function consumeBinding(name: string, scope: Scope, errors: CheckError[], pos: Pos): void {
   const binding = scope.get(name);
   if (!binding) return;
-  if (binding.moved) {
-    errors.push({ message: `value '${name}' has already been moved`, pos });
-    return;
-  }
+  if (binding.moved) return; // already reported by checkExpr var case
   if (!binding.owned) {
     errors.push({ message: `cannot move borrowed value '${name}'`, pos });
     return;
