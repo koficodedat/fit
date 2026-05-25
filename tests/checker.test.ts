@@ -830,3 +830,131 @@ describe("select statement", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
+
+describe("capability checker gap coverage", () => {
+  it("both caps missing from caller produces two errors (one per cap)", () => {
+    const src = `
+      fn needs_two() using Net, ChargeCard -> ()
+      fn no_caps() -> () { needs_two() }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors).toHaveLength(2);
+    expect(errors.some(e => e.message.includes("'Net'"))).toBe(true);
+    expect(errors.some(e => e.message.includes("'ChargeCard'"))).toBe(true);
+  });
+
+  it("select in then-branch does NOT grant atom in else-branch (bug fix verification)", () => {
+    const src = `
+      capability Fs
+      fn cond_fn() -> String
+      fn needs_read() using Read -> ()
+      fn do_read() using Fs -> () {
+        if cond_fn() {
+          select Read from Fs
+        } else {
+          needs_read()
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain("missing capability 'Read'");
+    expect(errors[0].message).toContain("needs_read");
+  });
+
+  it("cap check fires through ? propagation", () => {
+    const src = `
+      fn needs_net() using Net -> Result<String, String>
+      fn no_caps() -> Result<String, String> {
+        let x = needs_net()?
+        Ok(x)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain("missing capability 'Net'");
+  });
+
+  it("cap check fires through ? when cap is present — no error", () => {
+    const src = `
+      fn needs_net() using Net -> Result<String, String>
+      fn has_net() using Net -> Result<String, String> {
+        let x = needs_net()?
+        Ok(x)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("cap check fires inside Ok() wrapper", () => {
+    const src = `
+      fn needs_net() using Net -> String
+      fn no_caps() -> Result<String, String> {
+        Ok(needs_net())
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain("missing capability 'Net'");
+  });
+
+  it("cap check fires inside Err() wrapper", () => {
+    const src = `
+      fn needs_net() using Net -> String
+      fn no_caps() -> Result<String, String> {
+        Err(needs_net())
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain("missing capability 'Net'");
+  });
+
+  it("realistic caller with one of two required caps produces one error naming the missing cap", () => {
+    const src = `
+      capability ChargeCard
+      resource AuthToken { token_id: TokenId, cleanup: void_token }
+      enum PaymentError { Declined }
+      fn execute_charge(token: AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>
+      fn process_payment(card: CardDetails, amount: Cents) using Net -> Result<Receipt, PaymentError> {
+        let token = validate_card(card)?
+        let receipt = execute_charge(token, amount)?
+        Ok(receipt)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    const chargeErrors = errors.filter(e => e.message.includes("'ChargeCard'") && e.message.includes("execute_charge"));
+    expect(chargeErrors).toHaveLength(1);
+  });
+
+  it("self-projection select Fs from Fs is idempotent — no error", () => {
+    const src = `
+      capability Fs
+      fn do_work() using Fs -> () {
+        select Fs from Fs
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("atom from select persists for multiple subsequent calls in same scope", () => {
+    const src = `
+      capability Fs
+      fn needs_read() using Read -> ()
+      fn do_reads() using Fs -> () {
+        select Read from Fs
+        needs_read()
+        needs_read()
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("function with extra caps calling fewer-cap function produces no error", () => {
+    const src = `
+      fn needs_net() using Net -> ()
+      fn has_more() using Net, Console -> () { needs_net() }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+});

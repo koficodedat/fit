@@ -65,8 +65,8 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
       checkExpr(stmt.cond, scope, caps, env, errors);
       const thenScope = cloneScope(scope);
       const elseScope = cloneScope(scope);
-      checkStmts(stmt.then, thenScope, caps, env, errors);
-      checkStmts(stmt.else_, elseScope, caps, env, errors);
+      checkStmts(stmt.then, thenScope, new Set(caps), env, errors);
+      checkStmts(stmt.else_, elseScope, new Set(caps), env, errors);
       const merged = mergeScopes(scope, [thenScope, elseScope], errors, stmt.pos);
       for (const [k, v] of merged) scope.set(k, v);
       break;
@@ -74,7 +74,7 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
     case "loop": {
       const snap = snapshotTypestates(scope);
       const bodyScope = cloneScope(scope);
-      checkStmts(stmt.body, bodyScope, caps, env, errors);
+      checkStmts(stmt.body, bodyScope, new Set(caps), env, errors);
 
       for (const [name, beforeState] of snap) {
         const afterBind = bodyScope.get(name);
@@ -118,7 +118,7 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
             });
           }
         }
-        checkStmts(arm.body, armScope, caps, env, errors);
+        checkStmts(arm.body, armScope, new Set(caps), env, errors);
         branchScopes.push(armScope);
       }
       const merged = mergeScopes(scope, branchScopes, errors, stmt.pos);
