@@ -111,6 +111,8 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
         const armScope = cloneScope(scope);
         if (arm.pattern.kind === "variant") {
           for (const bind of arm.pattern.binds) {
+            // PoC limitation: payload type is not resolved from the enum definition.
+            // Linear enum variant payloads are not tracked — full fix is post-PoC.
             armScope.set(bind, {
               type_: { kind: "plain", mode: "unrestricted", name: "?" },
               owned: true,
@@ -150,6 +152,7 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
 
     case "ok": {
       const inner = checkExpr(expr.expr, scope, caps, env, errors);
+      // Only consume a named var — temporaries (calls, literals) have no binding to mark moved.
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
       }
@@ -158,6 +161,7 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
 
     case "err": {
       const inner = checkExpr(expr.expr, scope, caps, env, errors);
+      // Only consume a named var — temporaries (calls, literals) have no binding to mark moved.
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
       }
