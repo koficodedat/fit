@@ -146,12 +146,9 @@ describe("resolveType", () => {
     });
   });
 
-  it("resolves resource with non-named typeArg — typeState is null (parser invariant violation fallback)", () => {
+  it("resolves resource with non-named typeArg — throws on parser invariant violation", () => {
     const ast: Type = { kind: "named", name: "SmtpConn", typeArg: { kind: "unit" } };
-    expect(resolveType(ast, testEnv)).toEqual({
-      kind: "resource", mode: "linear", name: "SmtpConn",
-      typeState: null, cleanup: "tcp_force_close", fallback: false,
-    });
+    expect(() => resolveType(ast, testEnv)).toThrow("parser invariant violated");
   });
 
   it("resolves Result<Result<A, E1>, E2> — nested Result ok branch", () => {
@@ -209,8 +206,11 @@ describe("inferParamMode", () => {
     expect(inferParamMode("SmtpConn", ret)).toBe("move");
   });
 
-  it("move: param type found in typeArg of named return", () => {
+  it("move: param type found in typeArg of named return (known gap: appearance ≠ consumption)", () => {
     // e.g. fn wrap(c: SmtpConn<Ready>) -> Wrapper<SmtpConn>
+    // SmtpConn appears as a typeArg of Wrapper, so the heuristic infers "move".
+    // This may be wrong if the function only reads c rather than consuming it —
+    // the heuristic cannot distinguish wrapping from consuming.
     const ret: Type = { kind: "named", name: "Wrapper", typeArg: { kind: "named", name: "SmtpConn", typeArg: null } };
     expect(inferParamMode("SmtpConn", ret)).toBe("move");
   });
@@ -478,5 +478,37 @@ describe("buildTypeEnv — edge cases", () => {
     expect(env.aliases.has("Color")).toBe(false);
     expect(env.aliases.has("Point")).toBe(false);
     expect(env.functions.has("noop")).toBe(true);
+  });
+
+  it("fn with plain (undeclared) return type resolves to plain unrestricted in FunctionSig", () => {
+    // Ensures buildTypeEnv.returnType goes through resolveType, not raw AST passthrough.
+    const prog = parse("fn describe(x: Int) -> SomeUndeclaredType", "test.fit");
+    const env  = buildTypeEnv(prog);
+    const sig  = env.functions.get("describe");
+    expect(sig).toBeDefined();
+    expect(sig!.returnType).toEqual({ kind: "plain", mode: "unrestricted", name: "SomeUndeclaredType" });
+  });
+
+  it("alias name collision with resource name — resource takes precedence", () => {
+    // resources are checked before aliases in resolveType; if both maps have the same key,
+    // the resource wins. This precedence is a named invariant, not an accident.
+    const prog = parse(
+      "resource Dual { f: X, cleanup: cleanup_fn } type Dual = A | B fn use_it(d: Dual) -> ()",
+      "test.fit"
+    );
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("use_it");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0].type_.kind).toBe("resource");
+  });
+
+  it("fn using undeclared capability — caps stored verbatim, no validation in Step 2", () => {
+    // buildTypeEnv defers capability validation to Step 4 (capability checker).
+    // An undeclared cap name passes through without error.
+    const prog = parse("fn sensitive() using UndeclaredCap -> ()", "test.fit");
+    const env  = buildTypeEnv(prog);
+    const sig  = env.functions.get("sensitive");
+    expect(sig).toBeDefined();
+    expect(sig!.caps).toEqual(["UndeclaredCap"]);
   });
 });
