@@ -378,3 +378,35 @@ test("parse payment.fit — process_payment body", () => {
     expect(fn_.caps).toEqual(["Net", "ChargeCard"]);
   }
 });
+
+test("parse smtp.fit — no errors", () => {
+  const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
+  const prog = parse(src, "smtp.fit");
+  // enum SmtpState, resource SmtpConn, enum SmtpError, type SessionError,
+  // connect, greet, auth, ready, quit, close, send_message, deliver_batch, run_session = 13
+  expect(prog.decls).toHaveLength(13);
+});
+
+test("parse smtp.fit — deliver_batch body", () => {
+  const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
+  const prog = parse(src, "smtp.fit");
+  const fn_ = prog.decls.find(d => d.kind === "fn" && d.name === "deliver_batch");
+  if (fn_?.kind !== "fn" || fn_.body === null) throw new Error("missing deliver_batch");
+  // let mut remaining, loop, Ok(())
+  expect(fn_.body).toHaveLength(3);
+  expect(fn_.body[1].kind).toBe("loop");
+  if (fn_.body[1].kind === "loop") {
+    const loopBody = fn_.body[1].body;
+    expect(loopBody).toHaveLength(1);
+    expect(loopBody[0].kind).toBe("match");
+  }
+});
+
+test("parse smtp.fit — run_session body", () => {
+  const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
+  const prog = parse(src, "smtp.fit");
+  const fn_ = prog.decls.find(d => d.kind === "fn" && d.name === "run_session");
+  if (fn_?.kind !== "fn" || fn_.body === null) throw new Error("missing run_session");
+  // let c x4, deliver_batch?, let c = quit?, close(c) = 7 stmts
+  expect(fn_.body).toHaveLength(7);
+});

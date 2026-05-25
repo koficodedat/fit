@@ -1,0 +1,50 @@
+enum SmtpState { Fresh, Greeted, Authed, Ready, Closing }
+
+resource SmtpConn<S> {
+    sock:    TcpSocket,
+    cleanup: tcp_force_close,
+}
+
+enum SmtpError  { ConnRefused, AuthFailed, MailRejected }
+type SessionError = SmtpError | IoError
+
+fn connect(host: String)          using Net -> Result<SmtpConn<Fresh>,   SessionError>
+fn greet  (c: SmtpConn<Fresh>)    using Net -> Result<SmtpConn<Greeted>, SessionError>
+fn auth   (c: SmtpConn<Greeted>,
+           creds: Credentials)    using Net -> Result<SmtpConn<Authed>,  SessionError>
+fn ready  (c: SmtpConn<Authed>)   using Net -> Result<SmtpConn<Ready>,   SessionError>
+fn quit   (c: SmtpConn<Ready>)    using Net -> Result<SmtpConn<Closing>, SessionError>
+fn close  (c: SmtpConn<Closing>)  using Net -> Result<(), SessionError>
+
+// Lend: SmtpConn<Ready> not in return type — caller retains ownership
+fn send_message(c: SmtpConn<Ready>, msg: Message) using Net
+    -> Result<(), SessionError>
+
+// Plain loop: c stays Ready throughout — no state crossing, no recursion needed
+fn deliver_batch(c: SmtpConn<Ready>, msgs: List<Message>) using Net
+    -> Result<(), SessionError> {
+    let mut remaining = msgs
+    loop {
+        match next(remaining) {
+            None             => break,
+            Some(msg, rest)  => {
+                send_message(c, msg)?
+                remaining = rest
+            },
+        }
+    }
+    Ok(())
+}
+
+// Full session: straight-line setup → batch loop → straight-line teardown
+fn run_session(host: String, creds: Credentials, msgs: List<Message>) using Net
+    -> Result<(), SessionError> {
+
+    let c = connect(host)?
+    let c = greet(c)?
+    let c = auth(c, creds)?
+    let c = ready(c)?
+    deliver_batch(c, msgs)?
+    let c = quit(c)?
+    close(c)
+}
