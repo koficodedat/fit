@@ -45,14 +45,17 @@ class Parser {
         // Block comment
         this.advance(); // consume /
         this.advance(); // consume *
+        let closed = false;
         while (this.idx < this.src.length) {
           if (this.peek() === "*" && this.peek(1) === "/") {
             this.advance(); // consume *
             this.advance(); // consume /
+            closed = true;
             break;
           }
           this.advance();
         }
+        if (!closed) this.err("unterminated block comment");
       } else {
         break;
       }
