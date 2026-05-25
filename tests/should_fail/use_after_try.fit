@@ -7,10 +7,12 @@ resource Conn<S> {
 
 enum NetError { Refused }
 
+fn connect(host: String) -> Result<Conn<Fresh>, NetError>
 fn auth(c: Conn<Fresh>, creds: Credentials) -> Result<Conn<Authed>, NetError>
 fn send_data(c: Conn<Fresh>, data: String) -> Result<(), NetError>
 
-fn test(c: Conn<Fresh>, creds: Credentials, data: String) -> Result<(), NetError> {
+fn test(host: String, creds: Credentials, data: String) -> Result<(), NetError> {
+    let c = connect(host)?
     let c2 = auth(c, creds)?
     send_data(c, data)?
     Ok(())

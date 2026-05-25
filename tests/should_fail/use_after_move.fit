@@ -3,9 +3,11 @@ resource Token {
     cleanup: revoke_token,
 }
 
+fn make_token() -> Token
 fn consume_token(t: Token) -> Token
 
-fn test(t: Token) -> () {
+fn test() -> () {
+    let t = make_token()
     consume_token(t)
     consume_token(t)
 }
