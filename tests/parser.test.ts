@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import { Program, Decl, Stmt, Expr, Type, Pattern } from "../src/ast";
 import { parse } from "../src/parser";
 
@@ -355,5 +357,24 @@ test("parse try on Ok expr", () => {
     if (s.init.kind === "try") {
       expect(s.init.expr.kind).toBe("ok");
     }
+  }
+});
+
+test("parse payment.fit — no errors", () => {
+  const src = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf8");
+  const prog = parse(src, "payment.fit");
+  // capability, resource, enum, validate_card, execute_charge, audit_log, process_payment = 7
+  expect(prog.decls).toHaveLength(7);
+});
+
+test("parse payment.fit — process_payment body", () => {
+  const src = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf8");
+  const prog = parse(src, "payment.fit");
+  const fn_ = prog.decls.find(d => d.kind === "fn" && d.name === "process_payment");
+  expect(fn_).toBeDefined();
+  if (fn_?.kind === "fn") {
+    expect(fn_.body).not.toBeNull();
+    expect(fn_.body).toHaveLength(4); // let token, let receipt, audit_log?, Ok(receipt)
+    expect(fn_.caps).toEqual(["Net", "ChargeCard"]);
   }
 });

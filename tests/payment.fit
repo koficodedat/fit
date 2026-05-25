@@ -1,0 +1,26 @@
+capability ChargeCard
+
+resource AuthToken {
+    token_id: TokenId,
+    cleanup:  void_token,
+}
+
+enum PaymentError { Declined, NetworkFail, InvalidCard, AlreadyCharged }
+
+fn validate_card(card: CardDetails) using Net
+    -> Result<AuthToken, PaymentError>
+
+fn execute_charge(token: AuthToken, amount: Cents) using Net, ChargeCard
+    -> Result<Receipt, PaymentError>
+
+fn audit_log(receipt: Receipt) using Net
+    -> Result<(), PaymentError>
+
+fn process_payment(card: CardDetails, amount: Cents) using Net, ChargeCard
+    -> Result<Receipt, PaymentError> {
+
+    let token   = validate_card(card)?
+    let receipt = execute_charge(token, amount)?
+    audit_log(receipt)?
+    Ok(receipt)
+}
