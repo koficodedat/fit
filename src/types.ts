@@ -25,6 +25,9 @@ export type TypeEnv    = { resources: Map<string, ResourceInfo>; aliases: Map<st
 // functions map during buildTypeEnv's two-pass construction.
 export type ResolveEnv = Pick<TypeEnv, "resources" | "aliases">;
 
+// Recursion depth is bounded by the nesting depth of the Type AST.
+// Pathologically deep types (e.g. 10k-nested Result) can overflow the JS call stack.
+// For the PoC this is acceptable — all source files are trusted.
 export function resolveType(ast: Type, env: ResolveEnv): FitType {
   switch (ast.kind) {
     case "unit":
@@ -74,6 +77,9 @@ export function buildTypeEnv(program: Program): TypeEnv {
   const aliases   = new Map<string, string[]>();
   const functions = new Map<string, FunctionSig>();
 
+  // Duplicate decl names silently last-write-win — the parser does not enforce
+  // name uniqueness and buildTypeEnv does not either. Step 3 (checker) is
+  // responsible for catching duplicate declarations if needed.
   for (const decl of program.decls) {
     if (decl.kind === "resource") {
       resources.set(decl.name, {
@@ -83,10 +89,11 @@ export function buildTypeEnv(program: Program): TypeEnv {
     } else if (decl.kind === "type_alias") {
       aliases.set(decl.name, decl.members); // stored by reference — AST is read-only after parsing.
     }
+    // capability, record, enum decls are intentionally ignored in pass 1.
   }
 
-  // resolveEnv intentionally excludes functions: resolveType cannot access a partially-built
-  // functions map, making the two-pass boundary enforced by the type system.
+  // Two-pass boundary: resolveEnv excludes functions so resolveType cannot access the
+  // partially-built functions map. Do NOT merge the passes — that would break this invariant.
   const resolveEnv: ResolveEnv = { resources, aliases };
 
   for (const decl of program.decls) {
@@ -95,6 +102,7 @@ export function buildTypeEnv(program: Program): TypeEnv {
       const params: ResolvedParam[] = decl.params.map(p => {
         const type_    = resolveType(p.type_, resolveEnv);
         const baseName = p.type_.kind === "named" ? p.type_.name : "";
+        // decl.returnType is re-traversed once per param (no pre-indexing). Acceptable for small signatures.
         const mode     = inferParamMode(baseName, decl.returnType); // raw AST: alias expansion not needed for name-matching heuristic
         return { name: p.name, type_, mode };
       });
@@ -102,5 +110,6 @@ export function buildTypeEnv(program: Program): TypeEnv {
     }
   }
 
+  // Callers must null-check env.functions.get(name) — Map returns undefined on miss.
   return { resources, aliases, functions };
 }

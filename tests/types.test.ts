@@ -153,6 +153,35 @@ describe("resolveType", () => {
       typeState: null, cleanup: "tcp_force_close", fallback: false,
     });
   });
+
+  it("resolves Result<Result<A, E1>, E2> — nested Result ok branch", () => {
+    const ast: Type = {
+      kind: "result",
+      ok:  { kind: "result", ok: { kind: "named", name: "A", typeArg: null }, err: { kind: "named", name: "E1", typeArg: null } },
+      err: { kind: "named", name: "E2", typeArg: null },
+    };
+    expect(resolveType(ast, testEnv)).toEqual({
+      kind: "result", mode: "unrestricted",
+      ok:  { kind: "result", mode: "unrestricted",
+             ok:  { kind: "plain", mode: "unrestricted", name: "A" },
+             err: { kind: "plain", mode: "unrestricted", name: "E1" } },
+      err: { kind: "plain", mode: "unrestricted", name: "E2" },
+    });
+  });
+
+  it("resolves alias-of-alias — members are unresolved name strings, no expansion", () => {
+    // type A = B | C where B is itself a declared alias: resolveType returns A's members
+    // without expanding B. alias non-expansion is an accepted PoC limitation.
+    const envWithNestedAlias: ResolveEnv = {
+      resources: new Map(),
+      aliases: new Map([
+        ["B",          ["X", "Y"]],
+        ["AliasOfB",   ["B", "Z"]],
+      ]),
+    };
+    expect(resolveType({ kind: "named", name: "AliasOfB", typeArg: null }, envWithNestedAlias))
+      .toEqual({ kind: "alias", mode: "unrestricted", name: "AliasOfB", members: ["B", "Z"] });
+  });
 });
 
 describe("inferParamMode", () => {
@@ -392,5 +421,62 @@ describe("buildTypeEnv — edge cases", () => {
     const sig  = env.functions.get("origin");
     expect(sig).toBeDefined();
     expect(sig!.returnType).toEqual({ kind: "plain", mode: "unrestricted", name: "Pt" });
+  });
+
+  it("duplicate resource name — second decl silently overwrites first", () => {
+    // Known behavior: buildTypeEnv does not enforce name uniqueness.
+    // Step 3 (checker) is responsible for catching duplicate declarations.
+    const prog = parse(
+      "resource Conn { sock: X, cleanup: close_a } resource Conn { sock: Y, cleanup: close_b }",
+      "test.fit"
+    );
+    const env = buildTypeEnv(prog);
+    expect(env.resources.get("Conn")).toMatchObject({ cleanup: "close_b" });
+  });
+
+  it("duplicate fn name — second decl silently overwrites first", () => {
+    const prog = parse(
+      "fn greet() -> () fn greet(x: Int) -> ()",
+      "test.fit"
+    );
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("greet");
+    expect(sig).toBeDefined();
+    expect(sig!.params).toHaveLength(1); // second decl wins
+  });
+
+  it("zero-param function with resource return type", () => {
+    const prog = parse("resource Conn { sock: X, cleanup: close } fn create() -> Conn", "test.fit");
+    const env  = buildTypeEnv(prog);
+    const sig  = env.functions.get("create");
+    expect(sig).toBeDefined();
+    expect(sig!.params).toHaveLength(0);
+    expect(sig!.returnType).toEqual({
+      kind: "resource", mode: "linear", name: "Conn",
+      typeState: null, cleanup: "close", fallback: false,
+    });
+  });
+
+  it("fn with Result-typed param — baseName is empty string, mode is lend", () => {
+    // Non-named param types produce baseName="" in buildTypeEnv.
+    // inferParamMode("", ...) always returns "lend" since "" matches no type name.
+    const prog = parse("fn unwrap(r: Result<A, B>) -> ()", "test.fit");
+    const env  = buildTypeEnv(prog);
+    const sig  = env.functions.get("unwrap");
+    expect(sig).toBeDefined();
+    expect(sig!.params[0]).toMatchObject({ name: "r", mode: "lend" });
+  });
+
+  it("enum and record decls are silently ignored — not registered as resources or aliases", () => {
+    const prog = parse(
+      "enum Color { Red, Green } record Point { x: Int } fn noop() -> ()",
+      "test.fit"
+    );
+    const env = buildTypeEnv(prog);
+    expect(env.resources.has("Color")).toBe(false);
+    expect(env.resources.has("Point")).toBe(false);
+    expect(env.aliases.has("Color")).toBe(false);
+    expect(env.aliases.has("Point")).toBe(false);
+    expect(env.functions.has("noop")).toBe(true);
   });
 });
