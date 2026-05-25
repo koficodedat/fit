@@ -1,6 +1,16 @@
 import {
-  Program, Decl, Stmt, Expr, Type, Pattern, Pos,
-  FieldDef, ParamDef, CleanupDef, VariantDef, MatchArm
+  Program,
+  Decl,
+  Stmt,
+  Expr,
+  Type,
+  Pattern,
+  Pos,
+  FieldDef,
+  ParamDef,
+  CleanupDef,
+  VariantDef,
+  MatchArm,
 } from "./ast";
 
 class Parser {
@@ -144,7 +154,10 @@ class Parser {
       const type_ = this.parseType();
       fields.push({ name: fname, type_ });
       this.skip();
-      if (this.peek() === ",") { this.advance(); this.skip(); }
+      if (this.peek() === ",") {
+        this.advance();
+        this.skip();
+      }
     }
     this.expect("}");
     return { kind: "record", name, fields, pos };
@@ -166,7 +179,10 @@ class Parser {
       }
       variants.push({ name: vname, payload });
       this.skip();
-      if (this.peek() === ",") { this.advance(); this.skip(); }
+      if (this.peek() === ",") {
+        this.advance();
+        this.skip();
+      }
     }
     this.expect("}");
     return { kind: "enum", name, variants, pos };
@@ -215,7 +231,10 @@ class Parser {
         fields.push({ name: fname, type_ });
       }
       this.skip();
-      if (this.peek() === ",") { this.advance(); this.skip(); }
+      if (this.peek() === ",") {
+        this.advance();
+        this.skip();
+      }
     }
     this.expect("}");
     if (!cleanup) this.err(`resource '${name}' missing cleanup field`);
@@ -241,7 +260,10 @@ class Parser {
       const type_ = this.parseType();
       params.push({ name: pname, type_ });
       this.skip();
-      if (this.peek() === ",") { this.advance(); this.skip(); }
+      if (this.peek() === ",") {
+        this.advance();
+        this.skip();
+      }
     }
     this.expect(")");
     // optional using clause
@@ -318,7 +340,10 @@ class Parser {
       this.ident(); // consume "let"
       this.skip();
       let mut = false;
-      if (this.peekIdent() === "mut") { this.ident(); mut = true; }
+      if (this.peekIdent() === "mut") {
+        this.ident();
+        mut = true;
+      }
       const name = this.ident();
       this.expect("=");
       const init = this.parseExpr();
@@ -371,13 +396,15 @@ class Parser {
       this.skip();
       if (name === "Ok") {
         const inner = this.parseExpr();
-        this.skip(); this.expect(")");
+        this.skip();
+        this.expect(")");
         const e: Expr = { kind: "ok", expr: inner, pos: p };
         return this.parseTry(e);
       }
       if (name === "Err") {
         const inner = this.parseExpr();
-        this.skip(); this.expect(")");
+        this.skip();
+        this.expect(")");
         const e: Expr = { kind: "err", expr: inner, pos: p };
         return this.parseTry(e);
       }
@@ -385,7 +412,10 @@ class Parser {
       while (this.peek() !== ")") {
         args.push(this.parseExpr());
         this.skip();
-        if (this.peek() === ",") { this.advance(); this.skip(); }
+        if (this.peek() === ",") {
+          this.advance();
+          this.skip();
+        }
       }
       this.expect(")");
       const e: Expr = { kind: "call", fn: name, args, pos: p };
@@ -409,7 +439,8 @@ class Parser {
     this.skip();
     const p = this.pos();
     if (this.peek() === "(" && this.peek(1) === ")") {
-      this.advance(); this.advance();
+      this.advance();
+      this.advance();
       return { kind: "unit_val", pos: p };
     }
     const name = this.ident();
@@ -448,7 +479,10 @@ class Parser {
       while (this.peek() !== ")") {
         binds.push(this.ident());
         this.skip();
-        if (this.peek() === ",") { this.advance(); this.skip(); }
+        if (this.peek() === ",") {
+          this.advance();
+          this.skip();
+        }
       }
       this.expect(")");
     }
@@ -473,7 +507,10 @@ class Parser {
         body = [this.parseStmt()];
       }
       this.skip();
-      if (this.peek() === ",") { this.advance(); this.skip(); }
+      if (this.peek() === ",") {
+        this.advance();
+        this.skip();
+      }
       arms.push({ pattern, body });
     }
     this.expect("}");

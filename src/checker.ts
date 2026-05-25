@@ -35,13 +35,25 @@ function checkFn(fnName: string, body: Stmt[], env: TypeEnv, errors: CheckError[
   checkStmts(body, scope, caps, env, errors);
 }
 
-function checkStmts(stmts: Stmt[], scope: Scope, caps: CapScope, env: TypeEnv, errors: CheckError[]): void {
+function checkStmts(
+  stmts: Stmt[],
+  scope: Scope,
+  caps: CapScope,
+  env: TypeEnv,
+  errors: CheckError[]
+): void {
   for (const stmt of stmts) {
     checkStmt(stmt, scope, caps, env, errors);
   }
 }
 
-function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, errors: CheckError[]): void {
+function checkStmt(
+  stmt: Stmt,
+  scope: Scope,
+  caps: CapScope,
+  env: TypeEnv,
+  errors: CheckError[]
+): void {
   switch (stmt.kind) {
     case "expr":
       checkExpr(stmt.expr, scope, caps, env, errors);
@@ -93,10 +105,14 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
       break;
     }
 
-    case "break":  break; // still-owned linears get auto-cleaned; no linearity checker action
+    case "break":
+      break; // still-owned linears get auto-cleaned; no linearity checker action
     case "select": {
       if (!caps.has(stmt.from)) {
-        errors.push({ message: `capability '${stmt.from}' not in scope for 'select'`, pos: stmt.pos });
+        errors.push({
+          message: `capability '${stmt.from}' not in scope for 'select'`,
+          pos: stmt.pos,
+        });
       } else {
         // Source cap is unrestricted — not consumed. Add projected atoms to scope.
         for (const atom of stmt.atoms) caps.add(atom);
@@ -133,7 +149,13 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
   }
 }
 
-function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, errors: CheckError[]): FitType {
+function checkExpr(
+  expr: Expr,
+  scope: Scope,
+  caps: CapScope,
+  env: TypeEnv,
+  errors: CheckError[]
+): FitType {
   switch (expr.kind) {
     case "unit_val":
       return { kind: "unit", mode: "unrestricted" };
@@ -156,7 +178,12 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
       }
-      return { kind: "result", mode: "unrestricted", ok: inner, err: { kind: "unit", mode: "unrestricted" } };
+      return {
+        kind: "result",
+        mode: "unrestricted",
+        ok: inner,
+        err: { kind: "unit", mode: "unrestricted" },
+      };
     }
 
     case "err": {
@@ -165,7 +192,12 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
       }
-      return { kind: "result", mode: "unrestricted", ok: { kind: "unit", mode: "unrestricted" }, err: inner };
+      return {
+        kind: "result",
+        mode: "unrestricted",
+        ok: { kind: "unit", mode: "unrestricted" },
+        err: inner,
+      };
     }
 
     case "call": {
@@ -191,7 +223,10 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
       // Verify all capability requirements are satisfied in the current scope
       for (const cap of sig.caps) {
         if (!caps.has(cap)) {
-          errors.push({ message: `missing capability '${cap}' required by '${expr.fn}'`, pos: expr.pos });
+          errors.push({
+            message: `missing capability '${cap}' required by '${expr.fn}'`,
+            pos: expr.pos,
+          });
         }
       }
 
@@ -208,8 +243,10 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
           const binding = scope.get(arg.name);
           if (
             binding &&
-            param.type_.kind === "resource" && param.type_.typeState !== null &&
-            binding.type_.kind === "resource" && !binding.moved
+            param.type_.kind === "resource" &&
+            param.type_.typeState !== null &&
+            binding.type_.kind === "resource" &&
+            !binding.moved
           ) {
             if (binding.type_.typeState !== param.type_.typeState) {
               errors.push({
@@ -266,9 +303,9 @@ function mergeScopes(preScope: Scope, branches: Scope[], errors: CheckError[], p
   if (branches.length === 0) return result;
   for (const [name, preBind] of preScope) {
     if (preBind.type_.mode !== "linear" || !preBind.owned || preBind.moved) continue;
-    const movedIn = branches.map(b => b.get(name)?.moved ?? false);
-    const allMoved  = movedIn.every(m => m);
-    const noneMoved = movedIn.every(m => !m);
+    const movedIn = branches.map((b) => b.get(name)?.moved ?? false);
+    const allMoved = movedIn.every((m) => m);
+    const noneMoved = movedIn.every((m) => !m);
     if (!allMoved && !noneMoved) {
       errors.push({ message: `linear value '${name}' must be consumed on all branches`, pos });
     }
@@ -276,7 +313,6 @@ function mergeScopes(preScope: Scope, branches: Scope[], errors: CheckError[], p
   }
   return result;
 }
-
 
 function snapshotTypestates(scope: Scope): Map<string, string | null> {
   const snap = new Map<string, string | null>();
@@ -298,4 +334,3 @@ function consumeBinding(name: string, scope: Scope, errors: CheckError[], pos: P
   }
   binding.moved = true;
 }
-
