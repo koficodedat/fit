@@ -94,7 +94,15 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
     }
 
     case "break":  break; // still-owned linears get auto-cleaned; no linearity checker action
-    case "select": break; // capability projection — Task 3 implements this; no-op for now
+    case "select": {
+      if (!caps.has(stmt.from)) {
+        errors.push({ message: `capability '${stmt.from}' not in scope for 'select'`, pos: stmt.pos });
+      } else {
+        // Source cap is unrestricted — not consumed. Add projected atoms to scope.
+        for (const atom of stmt.atoms) caps.add(atom);
+      }
+      break;
+    }
 
     case "match": {
       checkExpr(stmt.expr, scope, caps, env, errors);

@@ -466,10 +466,10 @@ describe("loop typestate invariant", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 
-  it("select statement is a no-op for the linearity checker", () => {
+  it("select inside a function with matching cap does not affect linearity", () => {
     const src = `
       capability Fs
-      fn test() -> () {
+      fn test() using Fs -> () {
         select Read from Fs
       }
     `;
@@ -743,5 +743,90 @@ describe("capability checking at call sites", () => {
     `;
     const errors = check(parse(src, "test.fit"));
     expect(errors[0].message).toBe("missing capability 'Net' required by 'send_email'");
+  });
+});
+
+describe("select statement", () => {
+  it("select adds the atom to cap scope and enables a subsequent cap-requiring call", () => {
+    const src = `
+      capability Fs
+      fn read_file() using Read -> ()
+      fn do_read() using Fs -> () {
+        select Read from Fs
+        read_file()
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("select with a source cap not in scope produces an error", () => {
+    const src = `
+      fn read_file() using Read -> ()
+      fn do_read() -> () {
+        select Read from Fs
+        read_file()
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("'Fs'") && e.message.includes("select"))).toBe(true);
+  });
+
+  it("select with missing source still produces a cap error at the subsequent call", () => {
+    const src = `
+      fn read_file() using Read -> ()
+      fn do_read() -> () {
+        select Read from Fs
+        read_file()
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    // select error + read_file missing Read error (Read never got added because Fs was missing)
+    expect(errors.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("select of multiple atoms adds all of them to scope", () => {
+    const src = `
+      capability Fs
+      fn needs_read() using Read -> ()
+      fn needs_write() using Write -> ()
+      fn do_both() using Fs -> () {
+        select Read, Write from Fs
+        needs_read()
+        needs_write()
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("source cap is not consumed by select — still usable after", () => {
+    const src = `
+      capability Fs
+      fn needs_fs() using Fs -> ()
+      fn needs_read() using Read -> ()
+      fn do_work() using Fs -> () {
+        select Read from Fs
+        needs_read()
+        needs_fs()
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("payment.fit inline integration: process_payment with cap checks passes", () => {
+    const src = `
+      capability ChargeCard
+      resource AuthToken { token_id: TokenId, cleanup: void_token }
+      enum PaymentError { Declined, NetworkFail, InvalidCard, AlreadyCharged }
+      fn validate_card(card: CardDetails) using Net -> Result<AuthToken, PaymentError>
+      fn execute_charge(token: AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>
+      fn audit_log(receipt: Receipt) using Net -> Result<(), PaymentError>
+      fn process_payment(card: CardDetails, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError> {
+        let token   = validate_card(card)?
+        let receipt = execute_charge(token, amount)?
+        audit_log(receipt)?
+        Ok(receipt)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
