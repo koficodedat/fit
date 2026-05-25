@@ -23,7 +23,7 @@ test("error: record field missing colon", () => {
 });
 
 test("error: record missing close brace (EOF)", () => {
-  expect(() => parse("record Point { x: Int", "t.fit")).toThrow();
+  expect(() => parse("record Point { x: Int", "t.fit")).toThrow(/expected '}'|expected identifier|unterminated/);
 });
 
 // ─── RESOURCE ERRORS ─────────────────────────────────────────────────────────
@@ -47,7 +47,18 @@ test("error: Result missing comma between type args", () => {
   expect(() => parse("fn f() -> Result<A B>", "t.fit")).toThrow(/expected ','/);
 });
 
+// ─── TYPE ALIAS ERRORS ───────────────────────────────────────────────────────
+
+test("error: type alias missing equals sign", () => {
+  expect(() => parse("type Foo Bar", "t.fit")).toThrow(/expected '='/);
+});
+
 // ─── FN SIGNATURE ERRORS ─────────────────────────────────────────────────────
+
+test("error: fn name missing (bare open paren)", () => {
+  // fn () -> () — no name, ident() sees '(' which is not [a-zA-Z_]
+  expect(() => parse("fn () -> ()", "t.fit")).toThrow(/expected identifier/);
+});
 
 test("error: fn missing open paren", () => {
   expect(() => parse("fn f a: Int) -> ()", "t.fit")).toThrow(/expected '\('/);
@@ -82,7 +93,7 @@ test("error: unclosed block comment", () => {
 });
 
 test("error: unterminated block in fn body", () => {
-  expect(() => parse("fn f() -> () { let x = foo", "t.fit")).toThrow();
+  expect(() => parse("fn f() -> () { let x = foo", "t.fit")).toThrow(/expected '}'|expected identifier/);
 });
 
 // ─── LOCATION ACCURACY ───────────────────────────────────────────────────────
@@ -94,8 +105,19 @@ test("error location: correct line reported", () => {
 });
 
 test("error location: correct col reported", () => {
-  // record name missing, '{' appears where name expected
+  // "record {" — 'record' is 6 chars, space is 1, so '{' is at col 8.
+  // ident() skips whitespace then reads — but it sees '{' which is not [a-zA-Z_]
+  // The error fires at col 8.
   const src = "record {";
-  // col 1 is where { appears (after skip, 1-indexed)
-  expect(() => parse(src, "t.fit")).toThrow(/t\.fit:1:/);
+  let errMsg = "";
+  try { parse(src, "t.fit"); } catch(e) { errMsg = String(e); }
+  expect(errMsg).toMatch(/t\.fit:1:\d+:/);  // has line:col format
+  // Extract the column from the error message
+  const match = errMsg.match(/t\.fit:1:(\d+):/);
+  expect(match).not.toBeNull();
+  if (match) {
+    const col = parseInt(match[1], 10);
+    expect(col).toBeGreaterThan(0);  // column is positive
+    expect(col).toBeLessThanOrEqual(10);  // '{' is within first 10 chars
+  }
 });
