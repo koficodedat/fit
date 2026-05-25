@@ -307,12 +307,116 @@ class Parser {
   }
 
   private parseStmt(): Stmt {
-    throw new Error("TODO");
+    this.skip();
+    const p = this.pos();
+
+    // let / let mut
+    if (this.peekIdent() === "let") {
+      this.ident(); // consume "let"
+      this.skip();
+      let mut = false;
+      if (this.peekIdent() === "mut") { this.ident(); mut = true; }
+      const name = this.ident();
+      this.expect("=");
+      const init = this.parseExpr();
+      return { kind: "let", name, mut, init, pos: p };
+    }
+
+    // break
+    if (this.peekIdent() === "break") {
+      this.ident(); // consume "break"
+      return { kind: "break", pos: p };
+    }
+
+    // if
+    if (this.peekIdent() === "if") {
+      return this.parseIf(p);
+    }
+
+    // loop
+    if (this.peekIdent() === "loop") {
+      return this.parseLoop(p);
+    }
+
+    // match
+    if (this.peekIdent() === "match") {
+      return this.parseMatchStmt(p);
+    }
+
+    // select
+    if (this.peekIdent() === "select") {
+      return this.parseSelect(p);
+    }
+
+    // expression or rebind — read leading identifier first
+    const name = this.ident();
+    this.skip();
+    if (this.peek() === "=" && this.peek(1) !== "=") {
+      this.advance(); // consume =
+      const expr = this.parseExpr();
+      return { kind: "rebind", name, expr, pos: p };
+    }
+    // expression statement — re-enter parseExpr with name already consumed
+    const expr = this.parseExprFromName(name, p);
+    return { kind: "expr", expr, pos: p };
+  }
+
+  private parseExprFromName(name: string, p: Pos): Expr {
+    this.skip();
+    if (this.peek() === "(") {
+      this.advance(); // consume (
+      this.skip();
+      if (name === "Ok") {
+        const inner = this.parseExpr();
+        this.skip(); this.expect(")");
+        const e: Expr = { kind: "ok", expr: inner, pos: p };
+        return this.parseTry(e);
+      }
+      if (name === "Err") {
+        const inner = this.parseExpr();
+        this.skip(); this.expect(")");
+        const e: Expr = { kind: "err", expr: inner, pos: p };
+        return this.parseTry(e);
+      }
+      const args: Expr[] = [];
+      while (this.peek() !== ")") {
+        args.push(this.parseExpr());
+        this.skip();
+        if (this.peek() === ",") { this.advance(); this.skip(); }
+      }
+      this.expect(")");
+      const e: Expr = { kind: "call", fn: name, args, pos: p };
+      return this.parseTry(e);
+    }
+    const e: Expr = { kind: "var", name, pos: p };
+    return this.parseTry(e);
+  }
+
+  private parseTry(e: Expr): Expr {
+    this.skip();
+    if (this.peek() === "?") {
+      const p = this.pos();
+      this.advance();
+      return { kind: "try", expr: e, pos: p };
+    }
+    return e;
   }
 
   private parseExpr(): Expr {
-    throw new Error("TODO");
+    this.skip();
+    const p = this.pos();
+    if (this.peek() === "(" && this.peek(1) === ")") {
+      this.advance(); this.advance();
+      return { kind: "unit_val", pos: p };
+    }
+    const name = this.ident();
+    return this.parseExprFromName(name, p);
   }
+
+  private parseIf(_p: Pos): Stmt { throw new Error("TODO: parseIf"); }
+  private parseLoop(_p: Pos): Stmt { throw new Error("TODO: parseLoop"); }
+  private parseMatchStmt(_p: Pos): Stmt { throw new Error("TODO: parseMatch"); }
+  private parseSelect(_p: Pos): Stmt { throw new Error("TODO: parseSelect"); }
 
   private parsePattern(): Pattern {
     throw new Error("TODO");

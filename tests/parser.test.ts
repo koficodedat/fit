@@ -169,3 +169,89 @@ test("parse fn with empty body", () => {
     expect(d.body).toEqual([]);
   }
 });
+
+// Helper for statement-level tests
+function parseFnBody(src: string): Stmt[] {
+  const prog = parse(`fn f() -> () {\n${src}\n}`, "t.fit");
+  const d = prog.decls[0];
+  if (d.kind !== "fn" || d.body === null) throw new Error("not a fn with body");
+  return d.body;
+}
+
+test("parse let binding", () => {
+  const stmts = parseFnBody("let x = foo");
+  expect(stmts).toHaveLength(1);
+  const s = stmts[0];
+  expect(s.kind).toBe("let");
+  if (s.kind === "let") {
+    expect(s.name).toBe("x");
+    expect(s.mut).toBe(false);
+    expect(s.init).toEqual({ kind: "var", name: "foo", pos: expect.any(Object) });
+  }
+});
+
+test("parse let mut binding", () => {
+  const stmts = parseFnBody("let mut remaining = msgs");
+  const s = stmts[0];
+  expect(s.kind).toBe("let");
+  if (s.kind === "let") {
+    expect(s.mut).toBe(true);
+    expect(s.name).toBe("remaining");
+  }
+});
+
+test("parse rebind", () => {
+  const stmts = parseFnBody("remaining = rest");
+  const s = stmts[0];
+  expect(s.kind).toBe("rebind");
+  if (s.kind === "rebind") {
+    expect(s.name).toBe("remaining");
+    expect(s.expr).toEqual({ kind: "var", name: "rest", pos: expect.any(Object) });
+  }
+});
+
+test("parse call expression statement", () => {
+  const stmts = parseFnBody("audit_log(receipt)");
+  const s = stmts[0];
+  expect(s.kind).toBe("expr");
+  if (s.kind === "expr") {
+    const e = s.expr;
+    expect(e.kind).toBe("call");
+    if (e.kind === "call") {
+      expect(e.fn).toBe("audit_log");
+      expect(e.args).toHaveLength(1);
+      expect(e.args[0]).toEqual({ kind: "var", name: "receipt", pos: expect.any(Object) });
+    }
+  }
+});
+
+test("parse try expression", () => {
+  const stmts = parseFnBody("let token = validate_card(card)?");
+  const s = stmts[0];
+  if (s.kind === "let") {
+    expect(s.init).toEqual({
+      kind: "try",
+      expr: {
+        kind: "call",
+        fn: "validate_card",
+        args: [{ kind: "var", name: "card", pos: expect.any(Object) }],
+        pos: expect.any(Object),
+      },
+      pos: expect.any(Object),
+    });
+  }
+});
+
+test("parse break statement", () => {
+  const stmts = parseFnBody("break");
+  expect(stmts[0].kind).toBe("break");
+});
+
+test("parse drop call", () => {
+  const stmts = parseFnBody("drop(conn)");
+  const s = stmts[0];
+  if (s.kind === "expr") {
+    expect(s.expr.kind).toBe("call");
+    if (s.expr.kind === "call") expect(s.expr.fn).toBe("drop");
+  }
+});
