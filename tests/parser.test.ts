@@ -114,3 +114,58 @@ test("parse resource with fallback cleanup", () => {
     expect(d.cleanup).toEqual({ fallback: true, fn: "tcp_force_close" });
   }
 });
+
+test("parse fn signature only — no using", () => {
+  const prog = parse("fn greet(name: String) -> ()", "t.fit");
+  const d = prog.decls[0];
+  expect(d.kind).toBe("fn");
+  if (d.kind === "fn") {
+    expect(d.name).toBe("greet");
+    expect(d.params).toEqual([{ name: "name", type_: { kind: "named", name: "String", typeArg: null } }]);
+    expect(d.caps).toEqual([]);
+    expect(d.returnType).toEqual({ kind: "unit" });
+    expect(d.body).toBeNull();
+  }
+});
+
+test("parse fn signature with using", () => {
+  const prog = parse("fn serve(req: Request) using Net -> Result<Response, IoError>", "t.fit");
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.caps).toEqual(["Net"]);
+    expect(d.returnType).toEqual({
+      kind: "result",
+      ok:  { kind: "named", name: "Response", typeArg: null },
+      err: { kind: "named", name: "IoError",  typeArg: null },
+    });
+    expect(d.body).toBeNull();
+  }
+});
+
+test("parse fn signature with multiple caps", () => {
+  const prog = parse("fn charge(token: AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>", "t.fit");
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.caps).toEqual(["Net", "ChargeCard"]);
+  }
+});
+
+test("parse fn signature with typestate param type", () => {
+  const prog = parse("fn connect(host: String) using Net -> Result<SmtpConn<Fresh>, SessionError>", "t.fit");
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.returnType).toEqual({
+      kind: "result",
+      ok: { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Fresh", typeArg: null } },
+      err: { kind: "named", name: "SessionError", typeArg: null },
+    });
+  }
+});
+
+test("parse fn with empty body", () => {
+  const prog = parse("fn noop() -> () {\n}", "t.fit");
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.body).toEqual([]);
+  }
+});

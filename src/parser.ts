@@ -219,8 +219,49 @@ class Parser {
     return { kind: "resource", name, typeParam, fields, cleanup: cleanup as CleanupDef, pos };
   }
 
-  private parseFn(_pos: Pos): Decl {
-    throw new Error("TODO");
+  private peekIdent(): string {
+    let i = this.idx;
+    while (i < this.src.length && /[ \t\r\n]/.test(this.src[i])) i++;
+    let s = "";
+    while (i < this.src.length && /[a-zA-Z_0-9]/.test(this.src[i])) s += this.src[i++];
+    return s;
+  }
+
+  private parseFn(pos: Pos): Decl {
+    const name = this.ident();
+    this.expect("(");
+    const params: ParamDef[] = [];
+    this.skip();
+    while (this.peek() !== ")") {
+      const pname = this.ident();
+      this.expect(":");
+      const type_ = this.parseType();
+      params.push({ name: pname, type_ });
+      this.skip();
+      if (this.peek() === ",") { this.advance(); this.skip(); }
+    }
+    this.expect(")");
+    // optional using clause
+    const caps: string[] = [];
+    this.skip();
+    if (this.peekIdent() === "using") {
+      this.ident(); // consume "using"
+      caps.push(this.ident());
+      this.skip();
+      while (this.peek() === ",") {
+        this.advance();
+        caps.push(this.ident());
+        this.skip();
+      }
+    }
+    this.expect("->");
+    const returnType = this.parseType();
+    this.skip();
+    let body: Stmt[] | null = null;
+    if (this.peek() === "{") {
+      body = this.parseBlock();
+    }
+    return { kind: "fn", name, params, caps, returnType, body, pos };
   }
 
   private parseType(): Type {
@@ -254,7 +295,15 @@ class Parser {
   }
 
   private parseBlock(): Stmt[] {
-    throw new Error("TODO");
+    this.expect("{");
+    const stmts: Stmt[] = [];
+    this.skip();
+    while (this.peek() !== "}") {
+      stmts.push(this.parseStmt());
+      this.skip();
+    }
+    this.expect("}");
+    return stmts;
   }
 
   private parseStmt(): Stmt {
