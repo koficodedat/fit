@@ -139,6 +139,39 @@ in the C sense. For a binding `x` holding a linear resource, the rebind:
 The old value is unavailable after the rebind. The checker must treat rebind the same as
 a consuming call for linearity purposes.
 
+**No semicolons — newlines are statement separators.** FIT has no `;` statement
+terminator. `parseBlock` calls `skip()` (whitespace + comments) between statements, not
+a punctuation consumer. The block ends when `skip()` leaves the cursor at `}` or EOF.
+Any implementation that expects `;` between statements will fail immediately on both
+canonical programs.
+
+**Statement/expression disambiguation — peek after identifier.** `parseStmt` dispatches
+on the first token. When the first token is a bare identifier (not a keyword), the parser
+reads it and then peeks at the next non-whitespace character:
+- `=` and the character after it is not `=` → rebind: emit `{ kind: "rebind" }`, consume
+  `=`, parse RHS expression.
+- Anything else → expression statement: use the already-read identifier as the start of
+  an expression (a function call or a variable reference), parse the full expression, emit
+  `{ kind: "expr" }`.
+
+This single-token lookahead is the only disambiguation needed. The canonical programs
+exercise both paths: `remaining = rest` (rebind) and `send_message(c, msg)?` (expression).
+
+**Match arm body is dual-mode: single statement or block.** `parseMatch` reads arms
+separated by commas (see below). For each arm, after consuming `=>`, the parser checks
+the next non-whitespace character:
+- `{` → call `parseBlock()` to read a multi-statement body
+- Anything else → call `parseStmt()` and wrap the result in a single-element `Stmt[]`
+
+Both produce the same `MatchArm.body: Stmt[]` type. The canonical smtp.fit exercises
+both: `None => break,` (single stmt) and `Some(msg, rest) => { ... },` (block).
+
+**Match arms are comma-separated; comma required even after block arms.** Every arm in
+the canonical smtp.fit ends with `,` — including the block arm. Trailing comma before
+`}` is allowed (consistent with record field syntax). The parser must consume `,` after
+every arm body, including block bodies, and stop when it sees `}` after the optional
+trailing comma.
+
 ### Expressions
 
 ```ts
@@ -273,6 +306,59 @@ passes.
 This is a known limitation of body-free inference. The FIT spec does not define a
 signature-only equivalent of the body inference rule. If this gap produces false
 rejections in Step 5 test cases, escalate rather than patching with an ad-hoc rule.
+
+### Lent parameters are not owned by the callee — cleanup does not fire for them
+
+FIT-SPEC-v2.md §3: cleanup fires "on every scope exit where the value is **still owned**."
+§4: "lend = use without consuming... borrows it **for the duration of the call only**."
+
+A lent parameter is borrowed, not owned, by the callee. Cleanup is the caller's
+responsibility. The checker must track, for each binding in scope, whether it is **owned**
+(cleanup fires here on `?`-exit) or **lent** (no cleanup responsibility; caller retains
+ownership).
+
+Concrete consequence in `deliver_batch`:
+
+```
+send_message(c, msg)?   // c is lent from run_session; deliver_batch does not own it
+```
+
+If `send_message` fails, `?` fires cleanup for values `deliver_batch` owns. `c` is not
+one of them — `deliver_batch` only borrows it. `remaining` is unrestricted. So nothing
+needs cleanup at this exit point. The error propagates to `run_session`, where `c` is
+still owned, and `run_session`'s `?` fires cleanup on `c` there.
+
+A checker that fires cleanup on all linear values in scope at every `?` — regardless of
+owned vs lent — will produce a false double-free path through `deliver_batch`.
+
+### `let` init is evaluated before the new binding enters scope
+
+`let c = greet(c)?` — the `c` inside `greet(c)` must resolve to the **old** binding,
+not the new one being introduced. The correct evaluation order:
+
+1. Evaluate `init` expression in the current scope (old `c` is in scope, its type is
+   `SmtpConn<Fresh>`)
+2. Consume any values moved by `init` (old `c` is consumed by passing to `greet`)
+3. Introduce the new binding `c` into scope with the type produced by `init`
+   (`SmtpConn<Greeted>` after the `?` unwrap)
+
+A checker that introduces the new binding before step 1 will either fail to find the old
+`c` (shadowed too early) or resolve the wrong type. This rule applies to all `let`
+statements, not only shadowing ones.
+
+### Records with resource-typed fields are transitively linear
+
+FIT-SYNTAX.md §2.1: "All fields are plain data unless their type is a resource, in which
+case the record is itself linear — it owns a resource."
+
+The `record` AST node has no `cleanup` field. The checker derives linearity by inspecting
+each `FieldDef.type_`: if any field's base type name resolves to a `resource` declaration,
+the record is linear. Its effective cleanup is "fire cleanup for each resource-typed field
+in declaration order" — constructed by the checker, not written anywhere.
+
+For the PoC canonical programs this does not arise (no declared record has a resource
+field — all resource-typed field names are undeclared and treated as unrestricted). But
+the rule must be in the checker to handle test programs that exercise it.
 
 ---
 
