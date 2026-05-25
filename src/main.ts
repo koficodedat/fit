@@ -11,7 +11,8 @@ if (cmd !== "check" || !file) {
 
 let src: string;
 try {
-  src = fs.readFileSync(file, "utf8");
+  // Strip UTF-8 BOM (﻿) so editors that add it don't produce opaque parse errors
+  src = fs.readFileSync(file, "utf8").replace(/^﻿/, "");
 } catch {
   console.error(`fit: cannot read '${file}'`);
   process.exit(1);
