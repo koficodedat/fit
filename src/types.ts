@@ -81,8 +81,7 @@ export function buildTypeEnv(program: Program): TypeEnv {
         cleanup: decl.cleanup.fn, fallback: decl.cleanup.fallback,
       });
     } else if (decl.kind === "type_alias") {
-      aliases.set(decl.name, decl.members);
-      // decl.members and decl.caps are stored by reference — AST is read-only after parsing.
+      aliases.set(decl.name, decl.members); // stored by reference — AST is read-only after parsing.
     }
   }
 
@@ -96,10 +95,10 @@ export function buildTypeEnv(program: Program): TypeEnv {
       const params: ResolvedParam[] = decl.params.map(p => {
         const type_    = resolveType(p.type_, resolveEnv);
         const baseName = p.type_.kind === "named" ? p.type_.name : "";
-        const mode     = inferParamMode(baseName, decl.returnType);
+        const mode     = inferParamMode(baseName, decl.returnType); // raw AST: alias expansion not needed for name-matching heuristic
         return { name: p.name, type_, mode };
       });
-      functions.set(decl.name, { name: decl.name, params, caps: decl.caps, returnType });
+      functions.set(decl.name, { name: decl.name, params, caps: decl.caps, returnType }); // caps by reference — same read-only guarantee.
     }
   }
 
