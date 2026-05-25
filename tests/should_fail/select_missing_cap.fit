@@ -1,0 +1,9 @@
+capability Fs
+capability Read
+
+fn read_file(path: String) using Read -> String
+
+fn process(path: String) -> String {
+    select Read from Fs
+    read_file(path)
+}

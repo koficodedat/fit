@@ -5,9 +5,11 @@ resource Conn<S> {
     cleanup: force_close,
 }
 
+fn make_conn() -> Conn<Ready>
 fn transition(c: Conn<Ready>) -> Conn<Closing>
 
-fn test(c: Conn<Ready>) -> () {
+fn test() -> () {
+    let c = make_conn()
     loop {
         let c = transition(c)
         break

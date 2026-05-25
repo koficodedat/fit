@@ -1,0 +1,5 @@
+fn get_value() -> String
+
+fn test() -> String {
+    get_value()?
+}
