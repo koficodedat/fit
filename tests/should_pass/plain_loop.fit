@@ -1,0 +1,20 @@
+enum ConnState { Ready }
+
+resource Conn<S> {
+    sock: Socket,
+    cleanup: force_close,
+}
+
+fn send_msg(c: Conn<Ready>, msg: String) -> ()
+fn get_msg() -> String
+fn should_stop() -> String
+
+fn send_loop(c: Conn<Ready>) -> () {
+    loop {
+        let msg = get_msg()
+        send_msg(c, msg)
+        if should_stop() {
+            break
+        } else {}
+    }
+}

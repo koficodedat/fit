@@ -1,0 +1,21 @@
+enum ConnState { Fresh, Ready }
+
+resource Conn<S> {
+    sock: Socket,
+    cleanup: force_close,
+}
+
+enum NetError { Refused, Timeout }
+
+fn connect(host: String) -> Result<Conn<Fresh>, NetError>
+fn handshake(c: Conn<Fresh>) -> Result<Conn<Ready>, NetError>
+fn send(c: Conn<Ready>, data: String) -> Result<(), NetError>
+fn close(c: Conn<Ready>) -> ()
+
+fn run(host: String, data: String) -> Result<(), NetError> {
+    let c = connect(host)?
+    let c = handshake(c)?
+    send(c, data)?
+    close(c)
+    Ok(())
+}

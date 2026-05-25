@@ -1,0 +1,11 @@
+resource Handle {
+    conn: Socket,
+    cleanup: close_handle,
+}
+
+fn borrow_read(h: Handle) -> String
+fn borrow_write(h: Handle, data: String) -> ()
+
+fn use_handle(h: Handle) -> () {
+    borrow_write(h, borrow_read(h))
+}
