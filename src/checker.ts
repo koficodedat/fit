@@ -41,7 +41,13 @@ function checkStmts(stmts: Stmt[], scope: Scope, env: TypeEnv, errors: CheckErro
 function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[]): void {
   switch (stmt.kind) {
     case "expr":
-    case "let":
+      checkExpr(stmt.expr, scope, env, errors);
+      break;
+    case "let": {
+      const initType = checkExpr(stmt.init, scope, env, errors);
+      scope.set(stmt.name, { type_: initType, owned: true, moved: false });
+      break;
+    }
     case "rebind":
     case "if":
     case "loop":
@@ -53,10 +59,59 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
       const _exhaustive: never = stmt;
     }
   }
-  void scope; void env; void errors;
 }
 
 function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[]): FitType {
-  void expr; void scope; void env; void errors;
-  return { kind: "unit", mode: "unrestricted" };
+  switch (expr.kind) {
+    case "unit_val":
+      return { kind: "unit", mode: "unrestricted" };
+
+    case "var": {
+      const binding = scope.get(expr.name);
+      if (!binding) {
+        errors.push({ message: `undefined variable '${expr.name}'`, pos: expr.pos });
+        return { kind: "plain", mode: "unrestricted", name: "?" };
+      }
+      if (binding.moved) {
+        errors.push({ message: `value '${expr.name}' has already been moved`, pos: expr.pos });
+      }
+      return binding.type_;
+    }
+
+    case "ok": {
+      const inner = checkExpr(expr.expr, scope, env, errors);
+      return { kind: "result", mode: "unrestricted", ok: inner, err: { kind: "unit", mode: "unrestricted" } };
+    }
+
+    case "err": {
+      const inner = checkExpr(expr.expr, scope, env, errors);
+      return { kind: "result", mode: "unrestricted", ok: { kind: "unit", mode: "unrestricted" }, err: inner };
+    }
+
+    case "call":
+    case "try":
+      return { kind: "plain", mode: "unrestricted", name: "?" };
+
+    default: {
+      const _exhaustive: never = expr;
+      return { kind: "unit", mode: "unrestricted" };
+    }
+  }
 }
+
+function consumeBinding(name: string, scope: Scope, errors: CheckError[], pos: Pos): void {
+  const binding = scope.get(name);
+  if (!binding) return;
+  if (binding.moved) {
+    errors.push({ message: `value '${name}' has already been moved`, pos });
+    return;
+  }
+  if (!binding.owned) {
+    errors.push({ message: `cannot move borrowed value '${name}'`, pos });
+    return;
+  }
+  binding.moved = true;
+}
+
+// Suppress unused warning until Task 3 uses consumeBinding from call handling
+void consumeBinding;
