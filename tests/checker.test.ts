@@ -689,3 +689,59 @@ describe("stress tests — gaps and edge cases", () => {
     expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
   });
 });
+
+describe("capability checking at call sites", () => {
+  it("function can call another with matching cap in scope", () => {
+    const src = `
+      fn needs_net() using Net -> ()
+      fn has_net() using Net -> () { needs_net() }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("function without using clause calling a cap-requiring function produces an error", () => {
+    const src = `
+      fn needs_net() using Net -> ()
+      fn no_caps() -> () { needs_net() }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain("missing capability 'Net'");
+    expect(errors[0].message).toContain("needs_net");
+  });
+
+  it("function missing one of two required caps produces an error", () => {
+    const src = `
+      fn needs_two() using Net, ChargeCard -> ()
+      fn has_net_only() using Net -> () { needs_two() }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0].message).toContain("missing capability 'ChargeCard'");
+    expect(errors[0].message).toContain("needs_two");
+  });
+
+  it("function with both required caps produces no error", () => {
+    const src = `
+      fn needs_two() using Net, ChargeCard -> ()
+      fn has_both() using Net, ChargeCard -> () { needs_two() }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("unknown function (not in env) skips cap check — no error", () => {
+    const src = `
+      fn no_caps() -> () { unknown_fn() }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("error message names the missing cap and the callee", () => {
+    const src = `
+      fn send_email() using Net -> ()
+      fn no_caps() -> () { send_email() }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors[0].message).toBe("missing capability 'Net' required by 'send_email'");
+  });
+});

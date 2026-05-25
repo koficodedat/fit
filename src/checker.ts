@@ -171,6 +171,13 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
         return { kind: "plain", mode: "unrestricted", name: "?" };
       }
 
+      // Verify all capability requirements are satisfied in the current scope
+      for (const cap of sig.caps) {
+        if (!caps.has(cap)) {
+          errors.push({ message: `missing capability '${cap}' required by '${expr.fn}'`, pos: expr.pos });
+        }
+      }
+
       for (let i = 0; i < sig.params.length; i++) {
         const param = sig.params[i];
         const arg = expr.args[i];
