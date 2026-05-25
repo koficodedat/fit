@@ -499,3 +499,193 @@ describe("canonical programs — integration", () => {
     expect(errors).toEqual([]);
   });
 });
+
+describe("stress tests — gaps and edge cases", () => {
+  // Test 1: Ok(linear) must consume the binding (verifies bug fix)
+  it("Ok(linear) consumes the binding — subsequent use is use-after-move", () => {
+    const src = `
+      resource Tok { cleanup: drop_tok }
+      fn make_tok() -> Tok
+      fn take_tok(t: Tok) -> Tok
+      fn test() -> Result<Tok, String> {
+        let t = make_tok()
+        let result = Ok(t)
+        take_tok(t)
+      }
+    `;
+    // t is linear, Ok(t) moves it into the result, take_tok(t) is use-after-move
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  // Test 2: Err(linear) also consumes the binding
+  it("Err(linear) consumes the binding — subsequent use is use-after-move", () => {
+    const src = `
+      resource Tok { cleanup: drop_tok }
+      fn make_tok() -> Tok
+      fn take_tok(t: Tok) -> Tok
+      fn test() -> Result<String, Tok> {
+        let t = make_tok()
+        Err(t)
+        take_tok(t)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  // Test 3: Ok(unrestricted) does NOT consume — guard check
+  it("Ok(unrestricted) does not consume the binding", () => {
+    const src = `
+      fn make_s() -> String
+      fn test() -> Result<String, String> {
+        let s = make_s()
+        Ok(s)
+      }
+    `;
+    // s is plain unrestricted — Ok(s) must not consume it
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  // Test 4: Use-after-move when moved binding used in a lend call
+  it("use-after-move is reported even when second use is a lend call", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn take_foo(f: Foo) -> Foo
+      fn lend_foo(f: Foo) -> ()
+      fn test() -> () {
+        let f = make_foo()
+        take_foo(f)
+        lend_foo(f)
+      }
+    `;
+    // take_foo moves f (Foo in return type). lend_foo lends f (Foo not in return type).
+    // After take_foo(f), f.moved=true. lend_foo(f) — checkExpr(var(f)) sees moved → error.
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  // Test 5: Wrong typestate — Fresh where Ready expected (CLAUDE.md direction)
+  it("passing Conn<Fresh> to a function expecting Conn<Ready> — typestate error", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn send(c: Conn<Ready>, msg: String) -> Result<(), String>
+      fn test(c: Conn<Fresh>) -> () {
+        send(c, ())
+      }
+    `;
+    // c has typeState "Fresh", send expects "Ready" — typestate mismatch
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("typestate"))).toBe(true);
+    expect(errors.some(e => e.message.includes("Fresh"))).toBe(true);
+    expect(errors.some(e => e.message.includes("Ready"))).toBe(true);
+  });
+
+  // Test 6: rebind of undefined variable
+  it("rebind of undefined variable produces an error", () => {
+    const src = `
+      fn make_s() -> String
+      fn test() -> () {
+        ghost = make_s()
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("ghost"))).toBe(true);
+  });
+
+  // Test 7: Calling a known function with too few arguments
+  it("calling a known function with too few arguments produces an error", () => {
+    const src = `
+      fn use_two(a: String, b: String) -> ()
+      fn test() -> () {
+        use_two(())
+      }
+    `;
+    // use_two expects 2 params; called with 1 arg
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("not enough arguments"))).toBe(true);
+  });
+
+  // Test 8: Wildcard pattern in match arm
+  it("wildcard _ pattern in match arm works without error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      enum Choice { A, B }
+      fn make_foo() -> Foo
+      fn use_foo(f: Foo) -> Foo
+      fn get_choice() -> Choice
+      fn test() -> () {
+        let f = make_foo()
+        match get_choice() {
+          _ => use_foo(f),
+        }
+      }
+    `;
+    // Wildcard arm: no binds added. use_foo(f) moves f (Foo in return type).
+    // Single arm, f moved in it. mergeScopes: all branches moved → ok.
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  // Test 9: Truly empty loop body
+  it("truly empty loop body produces no error", () => {
+    const src = `fn test() -> () { loop {} }`;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  // Test 10: drop() with a lend param (owned=false)
+  it("drop() on a lend param produces cannot-move-borrowed error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn test(f: Foo) -> () {
+        drop(f)
+      }
+    `;
+    // test(f: Foo) -> () — Foo not in return type → f is lend (owned=false)
+    // drop(f) calls consumeBinding("f") → owned=false → "cannot move borrowed value"
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("borrowed"))).toBe(true);
+  });
+
+  // Test 11: Two linear resources in scope simultaneously — independent consumption tracking
+  it("two linear resources in scope — consuming one does not affect the other", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn take_foo(f: Foo) -> Foo
+      fn test() -> () {
+        let a = make_foo()
+        let b = make_foo()
+        take_foo(a)
+        take_foo(b)
+      }
+    `;
+    // a and b are independent. Taking a marks a.moved=true. b is unaffected.
+    // take_foo(b) is fine — b.moved=false.
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  // Test 12: Post-if use of binding moved in all branches
+  it("binding moved in all if-branches then used after — use-after-move error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn take_foo(f: Foo) -> Foo
+      fn lend_foo(f: Foo) -> ()
+      fn cond() -> String
+      fn test() -> () {
+        let f = make_foo()
+        if cond() {
+          take_foo(f)
+        } else {
+          take_foo(f)
+        }
+        lend_foo(f)
+      }
+    `;
+    // Both branches move f. After if, mergeScopes sets f.moved=true.
+    // lend_foo(f) — checkExpr(var(f)) → f.moved=true → error.
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+  });
+});

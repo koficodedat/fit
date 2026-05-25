@@ -139,11 +139,17 @@ function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[])
 
     case "ok": {
       const inner = checkExpr(expr.expr, scope, env, errors);
+      if (expr.expr.kind === "var" && inner.mode === "linear") {
+        consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
+      }
       return { kind: "result", mode: "unrestricted", ok: inner, err: { kind: "unit", mode: "unrestricted" } };
     }
 
     case "err": {
       const inner = checkExpr(expr.expr, scope, env, errors);
+      if (expr.expr.kind === "var" && inner.mode === "linear") {
+        consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
+      }
       return { kind: "result", mode: "unrestricted", ok: { kind: "unit", mode: "unrestricted" }, err: inner };
     }
 
