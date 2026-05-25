@@ -48,7 +48,16 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
       scope.set(stmt.name, { type_: initType, owned: true, moved: false });
       break;
     }
-    case "rebind":
+    case "rebind": {
+      if (!scope.has(stmt.name)) {
+        errors.push({ message: `cannot rebind undefined variable '${stmt.name}'`, pos: stmt.pos });
+        break;
+      }
+      const newType = checkExpr(stmt.expr, scope, env, errors);
+      // Old linear value gets auto-cleaned on rebind — not an error.
+      scope.set(stmt.name, { type_: newType, owned: true, moved: false });
+      break;
+    }
     case "if":
     case "loop":
     case "match":
@@ -136,8 +145,15 @@ function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[])
       return sig.returnType;
     }
 
-    case "try":
-      return { kind: "plain", mode: "unrestricted", name: "?" };
+    case "try": {
+      const innerType = checkExpr(expr.expr, scope, env, errors);
+      if (innerType.kind !== "result") {
+        errors.push({ message: `'?' applied to non-Result type`, pos: expr.pos });
+        return { kind: "plain", mode: "unrestricted", name: "?" };
+      }
+      // Error path: still-owned linears get auto-cleaned by FIT runtime — no checker action needed.
+      return innerType.ok;
+    }
 
     default: {
       const _exhaustive: never = expr;
@@ -154,8 +170,6 @@ function cloneScope(scope: Scope): Scope {
   return clone;
 }
 
-// Suppress unused warning until later tasks use cloneScope
-void cloneScope;
 
 function consumeBinding(name: string, scope: Scope, errors: CheckError[], pos: Pos): void {
   const binding = scope.get(name);

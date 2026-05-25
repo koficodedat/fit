@@ -205,3 +205,95 @@ describe("function calls", () => {
     expect(errors.some(e => e.message.includes("borrowed"))).toBe(true);
   });
 });
+
+describe("let, rebind, and try", () => {
+  it("let binding makes the value available in scope", () => {
+    const src = `
+      fn make_s() -> String
+      fn use_s(s: String) -> ()
+      fn test() -> () {
+        let s = make_s()
+        use_s(s)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("let creates an owned binding (linear resource held without error)", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn test() -> () {
+        let f = make_foo()
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("let-shadowing — old binding consumed before shadowing, new binding has updated typestate", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn test(c: Conn<Fresh>) -> Result<Conn<Greeted>, String> {
+        let c = greet(c)?
+        Ok(c)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("rebind works for plain unrestricted values", () => {
+    const src = `
+      fn next_val() -> String
+      fn test() -> () {
+        let mut x = next_val()
+        x = next_val()
+        x = next_val()
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("try unwraps Result to Ok type — typestate chain without errors", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn connect() -> Result<Conn<Fresh>, String>
+      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn auth(c: Conn<Greeted>) -> Result<Conn<Ready>, String>
+      fn test() -> Result<Conn<Ready>, String> {
+        let c = connect()?
+        let c = greet(c)?
+        let c = auth(c)?
+        Ok(c)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("try on non-Result type produces an error", () => {
+    const src = `
+      fn make_s() -> String
+      fn test() -> () {
+        let x = make_s()?
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("non-Result"))).toBe(true);
+  });
+
+  it("try propagates the correct ok type for later typestate use", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn connect() -> Result<Conn<Fresh>, String>
+      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn auth(c: Conn<Greeted>) -> Result<Conn<Authed>, String>
+      fn test() -> Result<Conn<Authed>, String> {
+        let c = connect()?
+        let c = greet(c)?
+        let c = auth(c)?
+        Ok(c)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+});
