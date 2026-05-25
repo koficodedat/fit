@@ -316,3 +316,44 @@ test("parse select statement", () => {
     expect(s.from).toBe("Fs");
   }
 });
+
+test("parse Ok(value)", () => {
+  const stmts = parseFnBody("Ok(receipt)");
+  const s = stmts[0];
+  if (s.kind === "expr") {
+    expect(s.expr.kind).toBe("ok");
+    if (s.expr.kind === "ok") {
+      expect(s.expr.expr).toEqual({ kind: "var", name: "receipt", pos: expect.any(Object) });
+    }
+  }
+});
+
+test("parse Ok(())", () => {
+  const stmts = parseFnBody("Ok(())");
+  const s = stmts[0];
+  if (s.kind === "expr") {
+    expect(s.expr.kind).toBe("ok");
+    if (s.expr.kind === "ok") {
+      expect(s.expr.expr.kind).toBe("unit_val");
+    }
+  }
+});
+
+test("parse Err(e)", () => {
+  const stmts = parseFnBody("Err(e)");
+  const s = stmts[0];
+  if (s.kind === "expr") {
+    expect(s.expr.kind).toBe("err");
+  }
+});
+
+test("parse try on Ok expr", () => {
+  const stmts = parseFnBody("let x = Ok(v)?");
+  const s = stmts[0];
+  if (s.kind === "let") {
+    expect(s.init.kind).toBe("try");
+    if (s.init.kind === "try") {
+      expect(s.init.expr.kind).toBe("ok");
+    }
+  }
+});
