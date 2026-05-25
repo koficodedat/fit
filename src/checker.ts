@@ -68,10 +68,31 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
       for (const [k, v] of merged) scope.set(k, v);
       break;
     }
-    case "loop":
-    case "break":
-    case "select":
+    case "loop": {
+      const snap = snapshotTypestates(scope);
+      const bodyScope = cloneScope(scope);
+      checkStmts(stmt.body, bodyScope, env, errors);
+
+      for (const [name, beforeState] of snap) {
+        const afterBind = bodyScope.get(name);
+        if (!afterBind || afterBind.moved) continue;
+        if (afterBind.type_.kind === "resource" && afterBind.type_.typeState !== beforeState) {
+          errors.push({
+            message: `loop body changes typestate of '${name}' from ${beforeState} to ${afterBind.type_.typeState}; use recursion instead`,
+            pos: stmt.pos,
+          });
+        }
+      }
+
+      // Propagate moves from loop body back to outer scope
+      for (const [name, binding] of scope) {
+        if (bodyScope.get(name)?.moved) binding.moved = true;
+      }
       break;
+    }
+
+    case "break":  break; // still-owned linears get auto-cleaned; no linearity checker action
+    case "select": break; // capability projection — Step 4 handles this
     case "match": {
       checkExpr(stmt.expr, scope, env, errors);
       const branchScopes: Scope[] = [];
@@ -214,6 +235,16 @@ function mergeScopes(preScope: Scope, branches: Scope[], errors: CheckError[], p
   return result;
 }
 
+
+function snapshotTypestates(scope: Scope): Map<string, string | null> {
+  const snap = new Map<string, string | null>();
+  for (const [name, binding] of scope) {
+    if (binding.type_.kind === "resource" && !binding.moved) {
+      snap.set(name, binding.type_.typeState);
+    }
+  }
+  return snap;
+}
 
 function consumeBinding(name: string, scope: Scope, errors: CheckError[], pos: Pos): void {
   const binding = scope.get(name);

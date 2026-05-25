@@ -403,3 +403,76 @@ describe("branch exhaustiveness", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
+
+describe("loop typestate invariant", () => {
+  it("plain loop with no typestate change — no error", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn send(c: Conn<Ready>, msg: String) -> Result<(), String>
+      fn next_msg(x: String) -> String
+      fn deliver(c: Conn<Ready>) -> () {
+        loop {
+          send(c, ())
+          break
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("loop that changes typestate — error with correct message format", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn bad_loop(c: Conn<Fresh>) -> () {
+        loop {
+          let c = greet(c)?
+          break
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("loop body changes typestate"))).toBe(true);
+    expect(errors.some(e => e.message.includes("use recursion instead"))).toBe(true);
+  });
+
+  it("loop typestate error message names the binding and both states", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn bad_loop(c: Conn<Fresh>) -> () {
+        loop {
+          let c = greet(c)?
+          break
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    const loopErr = errors.find(e => e.message.includes("loop body changes typestate"));
+    expect(loopErr).toBeDefined();
+    expect(loopErr!.message).toContain("'c'");
+    expect(loopErr!.message).toContain("Fresh");
+    expect(loopErr!.message).toContain("Greeted");
+  });
+
+  it("break inside loop body does not produce an error", () => {
+    const src = `
+      fn test() -> () {
+        loop {
+          break
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("select statement is a no-op for the linearity checker", () => {
+    const src = `
+      capability Fs
+      fn test() -> () {
+        select Read from Fs
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+});
