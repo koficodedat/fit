@@ -476,3 +476,26 @@ describe("loop typestate invariant", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
+
+describe("canonical programs — integration", () => {
+  const fs   = require("fs");
+  const path = require("path");
+
+  it("payment.fit produces no checker errors", () => {
+    const src = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf-8");
+    const errors = check(parse(src, "payment.fit"));
+    if (errors.length > 0) {
+      console.log("payment.fit errors:", JSON.stringify(errors, null, 2));
+    }
+    expect(errors).toEqual([]);
+  });
+
+  it("smtp.fit produces no checker errors", () => {
+    const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf-8");
+    const errors = check(parse(src, "smtp.fit"));
+    if (errors.length > 0) {
+      console.log("smtp.fit errors:", JSON.stringify(errors, null, 2));
+    }
+    expect(errors).toEqual([]);
+  });
+});
