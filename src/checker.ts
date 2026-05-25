@@ -81,7 +81,7 @@ function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, error
         if (!afterBind || afterBind.moved) continue;
         if (afterBind.type_.kind === "resource" && afterBind.type_.typeState !== beforeState) {
           errors.push({
-            message: `loop body changes typestate of '${name}' from ${beforeState} to ${afterBind.type_.typeState}; use recursion instead`,
+            message: `loop body changes typestate of '${name}' from '${beforeState}' to '${afterBind.type_.typeState}'; use recursion instead`,
             pos: stmt.pos,
           });
         }
@@ -166,9 +166,14 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
 
     case "call": {
       // drop is a built-in consuming sink — no capability requirements
-      if (expr.fn === "drop" && expr.args.length === 1 && expr.args[0].kind === "var") {
-        checkExpr(expr.args[0], scope, caps, env, errors);
-        consumeBinding(expr.args[0].name, scope, errors, expr.args[0].pos);
+      if (expr.fn === "drop") {
+        if (expr.args.length === 1 && expr.args[0].kind === "var") {
+          checkExpr(expr.args[0], scope, caps, env, errors);
+          consumeBinding(expr.args[0].name, scope, errors, expr.args[0].pos);
+        } else {
+          errors.push({ message: `drop requires a single variable argument`, pos: expr.pos });
+          for (const arg of expr.args) checkExpr(arg, scope, caps, env, errors);
+        }
         return { kind: "unit", mode: "unrestricted" };
       }
 
@@ -210,10 +215,15 @@ function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, error
             }
           }
 
-          if (param.mode === "move") {
+          if (param.mode === "move" && binding?.type_.mode === "linear") {
             consumeBinding(arg.name, scope, errors, arg.pos);
           }
         }
+      }
+      // Extra arguments beyond the declared parameter list
+      for (let i = sig.params.length; i < expr.args.length; i++) {
+        checkExpr(expr.args[i], scope, caps, env, errors);
+        errors.push({ message: `too many arguments to '${expr.fn}'`, pos: expr.args[i].pos });
       }
       return sig.returnType;
     }

@@ -962,7 +962,9 @@ describe("capability checker gap coverage", () => {
 describe("holistic gap coverage", () => {
   it("use-after-move via move-mode call produces exactly one error (not two)", () => {
     // BUG-1 regression: consumeBinding must not double-report already-moved
+    // Tok must be a resource so binding.type_.mode === "linear" and move semantics apply
     const src = `
+      resource Tok { id: TokId, cleanup: revoke_tok }
       fn make_tok() -> Tok
       fn take_tok(t: Tok) -> Tok
       fn test() -> () {
@@ -1107,5 +1109,107 @@ describe("holistic gap coverage", () => {
     const errors = check(parse(src, "test.fit"));
     // The else-branch needs_read() should error (Read not in scope)
     expect(errors.some(e => e.message.includes("missing capability 'Read'"))).toBe(true);
+  });
+});
+
+describe("stress test gap coverage", () => {
+  it("plain unrestricted type: double-use of Int param produces no false-positive move error", () => {
+    // Finding 6: inferParamMode classifies Int as move when Int appears in return type,
+    // but consumeBinding must not apply to unrestricted bindings
+    const src = `
+      fn double(x: Int) -> Int
+      fn test(n: Int) -> () {
+        let a = double(n)
+        let b = double(n)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("plain unrestricted type: resource in caller IS consumed (move semantics preserved)", () => {
+    const src = `
+      resource Tok { id: TokId, cleanup: revoke_tok }
+      fn make_tok() -> Tok
+      fn consume_tok(t: Tok) -> Tok
+      fn test() -> () {
+        let t = make_tok()
+        consume_tok(t)
+        consume_tok(t)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  it("drop(non-var) emits an error and returns unit", () => {
+    // Finding 2: drop with a call expression arg should produce an explicit error
+    const src = `
+      resource Tok { id: TokId, cleanup: revoke_tok }
+      fn make_tok() -> Tok
+      fn test() -> () {
+        drop(make_tok())
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message === "drop requires a single variable argument")).toBe(true);
+  });
+
+  it("drop() with zero args emits an error", () => {
+    const src = `
+      fn test() -> () {
+        drop()
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message === "drop requires a single variable argument")).toBe(true);
+  });
+
+  it("too many arguments to a known function emits an error", () => {
+    // Finding 4: extra args beyond sig.params.length were silently ignored
+    const src = `
+      resource Tok { id: TokId, cleanup: revoke_tok }
+      fn make_tok() -> Tok
+      fn use_tok(t: Tok) -> ()
+      fn test() -> () {
+        let t = make_tok()
+        let t2 = make_tok()
+        use_tok(t, t2)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("too many arguments to 'use_tok'"))).toBe(true);
+  });
+
+  it("extra arg that is an undefined variable gets caught", () => {
+    // Extra args now get checkExpr called, so undefined vars in extra positions are caught
+    const src = `
+      fn noop() -> ()
+      fn test() -> () {
+        noop(ghost)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("undefined variable 'ghost'"))).toBe(true);
+  });
+
+  it("loop typestate error message quotes the state names", () => {
+    // Finding 14: state names should be quoted for consistency
+    const src = `
+      enum S { Ready, Closing }
+      resource Conn<S> { sock: Sock, cleanup: force_close }
+      fn make_conn() -> Conn<Ready>
+      fn transition(c: Conn<Ready>) -> Conn<Closing>
+      fn test() -> () {
+        let c = make_conn()
+        loop {
+          let c = transition(c)
+          break
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    const loopErr = errors.find(e => e.message.includes("loop body changes typestate"));
+    expect(loopErr).toBeDefined();
+    expect(loopErr!.message).toContain("from 'Ready' to 'Closing'");
   });
 });
