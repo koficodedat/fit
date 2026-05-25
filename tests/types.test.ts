@@ -64,3 +64,90 @@ describe("types module data structures", () => {
     expect(narrow.resources.size).toBe(0);
   });
 });
+
+describe("resolveType", () => {
+  const testEnv: ResolveEnv = {
+    resources: new Map([
+      ["AuthToken", { name: "AuthToken", typeParam: null, cleanup: "void_token",      fallback: false }],
+      ["SmtpConn",  { name: "SmtpConn",  typeParam: "S",  cleanup: "tcp_force_close", fallback: false }],
+    ]),
+    aliases: new Map([
+      ["SessionError", ["SmtpError", "IoError"]],
+    ]),
+  };
+
+  it("resolves unit type", () => {
+    expect(resolveType({ kind: "unit" }, testEnv)).toEqual({ kind: "unit", mode: "unrestricted" });
+  });
+
+  it("resolves undeclared named type as plain unrestricted", () => {
+    expect(resolveType({ kind: "named", name: "String", typeArg: null }, testEnv))
+      .toEqual({ kind: "plain", mode: "unrestricted", name: "String" });
+  });
+
+  it("resolves declared resource without typestate", () => {
+    expect(resolveType({ kind: "named", name: "AuthToken", typeArg: null }, testEnv))
+      .toEqual({ kind: "resource", mode: "linear", name: "AuthToken", typeState: null, cleanup: "void_token", fallback: false });
+  });
+
+  it("resolves resource with typestate argument", () => {
+    const ast: Type = { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Ready", typeArg: null } };
+    expect(resolveType(ast, testEnv))
+      .toEqual({ kind: "resource", mode: "linear", name: "SmtpConn", typeState: "Ready", cleanup: "tcp_force_close", fallback: false });
+  });
+
+  it("resolves alias type", () => {
+    expect(resolveType({ kind: "named", name: "SessionError", typeArg: null }, testEnv))
+      .toEqual({ kind: "alias", mode: "unrestricted", name: "SessionError", members: ["SmtpError", "IoError"] });
+  });
+
+  it("resolves Result<AuthToken, PaymentError> — ok is resource, err is plain", () => {
+    const ast: Type = {
+      kind: "result",
+      ok:  { kind: "named", name: "AuthToken",    typeArg: null },
+      err: { kind: "named", name: "PaymentError", typeArg: null },
+    };
+    expect(resolveType(ast, testEnv)).toEqual({
+      kind: "result",
+      mode: "unrestricted",
+      ok:  { kind: "resource", mode: "linear",      name: "AuthToken", typeState: null, cleanup: "void_token", fallback: false },
+      err: { kind: "plain",    mode: "unrestricted", name: "PaymentError" },
+    });
+  });
+
+  it("resolves Result<(), SessionError> — ok is unit, err is alias", () => {
+    const ast: Type = {
+      kind: "result",
+      ok:  { kind: "unit" },
+      err: { kind: "named", name: "SessionError", typeArg: null },
+    };
+    expect(resolveType(ast, testEnv)).toEqual({
+      kind: "result",
+      mode: "unrestricted",
+      ok:  { kind: "unit",  mode: "unrestricted" },
+      err: { kind: "alias", mode: "unrestricted", name: "SessionError", members: ["SmtpError", "IoError"] },
+    });
+  });
+
+  it("resolves Result<(), SmtpConn<Closing>> — err branch is a resource", () => {
+    const ast: Type = {
+      kind: "result",
+      ok:  { kind: "unit" },
+      err: { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Closing", typeArg: null } },
+    };
+    expect(resolveType(ast, testEnv)).toEqual({
+      kind: "result",
+      mode: "unrestricted",
+      ok:  { kind: "unit",     mode: "unrestricted" },
+      err: { kind: "resource", mode: "linear", name: "SmtpConn", typeState: "Closing", cleanup: "tcp_force_close", fallback: false },
+    });
+  });
+
+  it("resolves resource with non-named typeArg — typeState is null (parser invariant violation fallback)", () => {
+    const ast: Type = { kind: "named", name: "SmtpConn", typeArg: { kind: "unit" } };
+    expect(resolveType(ast, testEnv)).toEqual({
+      kind: "resource", mode: "linear", name: "SmtpConn",
+      typeState: null, cleanup: "tcp_force_close", fallback: false,
+    });
+  });
+});

@@ -25,8 +25,29 @@ export type TypeEnv    = { resources: Map<string, ResourceInfo>; aliases: Map<st
 // functions map during buildTypeEnv's two-pass construction.
 export type ResolveEnv = Pick<TypeEnv, "resources" | "aliases">;
 
-export function resolveType(_ast: Type, _env: ResolveEnv): FitType {
-  throw new Error("not implemented");
+export function resolveType(ast: Type, env: ResolveEnv): FitType {
+  switch (ast.kind) {
+    case "unit":
+      return { kind: "unit", mode: "unrestricted" };
+    case "result": {
+      const ok  = resolveType(ast.ok,  env);
+      const err = resolveType(ast.err, env);
+      return { kind: "result", mode: "unrestricted", ok, err };
+    }
+    case "named": {
+      const resource = env.resources.get(ast.name);
+      if (resource) {
+        // typeArg?.kind === "named" relies on parser invariant: typestate args are always identifiers.
+        const typeState = ast.typeArg?.kind === "named" ? ast.typeArg.name : null;
+        return { kind: "resource", mode: "linear", name: ast.name, typeState, cleanup: resource.cleanup, fallback: resource.fallback };
+      }
+      const alias = env.aliases.get(ast.name);
+      if (alias) {
+        return { kind: "alias", mode: "unrestricted", name: ast.name, members: alias };
+      }
+      return { kind: "plain", mode: "unrestricted", name: ast.name };
+    }
+  }
 }
 
 export function inferParamMode(_paramBaseName: string, _returnType: Type): ParamMode {
