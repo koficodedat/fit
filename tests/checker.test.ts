@@ -297,3 +297,109 @@ describe("let, rebind, and try", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
+
+describe("branch exhaustiveness", () => {
+  it("if where linear is consumed in both branches — no error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn use_foo(f: Foo) -> Foo
+      fn cond() -> String
+      fn test() -> () {
+        let f = make_foo()
+        if cond() {
+          use_foo(f)
+        } else {
+          use_foo(f)
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("if where linear is consumed in only one branch — error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn use_foo(f: Foo) -> Foo
+      fn cond() -> String
+      fn test() -> () {
+        let f = make_foo()
+        if cond() {
+          use_foo(f)
+        } else {
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("all branches"))).toBe(true);
+    expect(errors.some(e => e.message.includes("'f'"))).toBe(true);
+  });
+
+  it("if where linear is consumed in neither branch — no error (auto-cleanup)", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn cond() -> String
+      fn test() -> () {
+        let f = make_foo()
+        if cond() {
+        } else {
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("match where linear is consumed in all arms — no error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      enum Choice { A, B }
+      fn make_foo() -> Foo
+      fn use_foo(f: Foo) -> Foo
+      fn get_choice() -> Choice
+      fn test() -> () {
+        let f = make_foo()
+        match get_choice() {
+          A => use_foo(f),
+          B => use_foo(f),
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("match where linear is consumed in only one arm — error", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      enum Choice { A, B }
+      fn make_foo() -> Foo
+      fn use_foo(f: Foo) -> Foo
+      fn get_choice() -> Choice
+      fn test() -> () {
+        let f = make_foo()
+        match get_choice() {
+          A => use_foo(f),
+          B => {},
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("all branches"))).toBe(true);
+  });
+
+  it("pattern bindings in match arms are accessible without error", () => {
+    const src = `
+      enum Option { None, Some(String) }
+      fn use_s(s: String) -> ()
+      fn get_opt() -> Option
+      fn test() -> () {
+        match get_opt() {
+          None       => {},
+          Some(val)  => use_s(val),
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+});

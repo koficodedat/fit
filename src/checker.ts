@@ -58,12 +58,41 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
       scope.set(stmt.name, { type_: newType, owned: true, moved: false });
       break;
     }
-    case "if":
+    case "if": {
+      checkExpr(stmt.cond, scope, env, errors);
+      const thenScope = cloneScope(scope);
+      const elseScope = cloneScope(scope);
+      checkStmts(stmt.then, thenScope, env, errors);
+      checkStmts(stmt.else_, elseScope, env, errors);
+      const merged = mergeScopes(scope, [thenScope, elseScope], errors, stmt.pos);
+      for (const [k, v] of merged) scope.set(k, v);
+      break;
+    }
     case "loop":
-    case "match":
     case "break":
     case "select":
       break;
+    case "match": {
+      checkExpr(stmt.expr, scope, env, errors);
+      const branchScopes: Scope[] = [];
+      for (const arm of stmt.arms) {
+        const armScope = cloneScope(scope);
+        if (arm.pattern.kind === "variant") {
+          for (const bind of arm.pattern.binds) {
+            armScope.set(bind, {
+              type_: { kind: "plain", mode: "unrestricted", name: "?" },
+              owned: true,
+              moved: false,
+            });
+          }
+        }
+        checkStmts(arm.body, armScope, env, errors);
+        branchScopes.push(armScope);
+      }
+      const merged = mergeScopes(scope, branchScopes, errors, stmt.pos);
+      for (const [k, v] of merged) scope.set(k, v);
+      break;
+    }
     default: {
       const _exhaustive: never = stmt;
     }
@@ -168,6 +197,21 @@ function cloneScope(scope: Scope): Scope {
     clone.set(k, { ...v });
   }
   return clone;
+}
+
+function mergeScopes(preScope: Scope, branches: Scope[], errors: CheckError[], pos: Pos): Scope {
+  const result = cloneScope(preScope);
+  for (const [name, preBind] of preScope) {
+    if (preBind.type_.mode !== "linear" || !preBind.owned || preBind.moved) continue;
+    const movedIn = branches.map(b => b.get(name)?.moved ?? false);
+    const allMoved  = movedIn.every(m => m);
+    const noneMoved = movedIn.every(m => !m);
+    if (!allMoved && !noneMoved) {
+      errors.push({ message: `linear value '${name}' must be consumed on all branches`, pos });
+    }
+    result.get(name)!.moved = allMoved;
+  }
+  return result;
 }
 
 
