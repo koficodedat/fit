@@ -58,6 +58,10 @@ function typeContainsName(t: Type, name: string): boolean {
     case "unit":   return false;
     case "named":  return t.name === name || (t.typeArg !== null && typeContainsName(t.typeArg, name));
     case "result": return typeContainsName(t.ok, name) || typeContainsName(t.err, name);
+    default: {
+      const _exhaustive: never = t;
+      return false;
+    }
   }
 }
 
