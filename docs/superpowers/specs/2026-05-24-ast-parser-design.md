@@ -86,7 +86,7 @@ type Stmt =
   | { kind: "let";    name: string; mut: boolean; init: Expr; pos: Pos }
   | { kind: "rebind"; name: string; expr: Expr; pos: Pos }
   | { kind: "expr";   expr: Expr; pos: Pos }
-  | { kind: "if";     cond: Expr; then: Stmt[]; else_: Stmt[]; pos: Pos }
+  | { kind: "if";     cond: Expr; then: Stmt[]; else_: Stmt[]; pos: Pos }  // else mandatory
   | { kind: "loop";   body: Stmt[]; pos: Pos }
   | { kind: "match";  expr: Expr; arms: MatchArm[]; pos: Pos }
   | { kind: "break";  pos: Pos }
@@ -95,6 +95,13 @@ type Stmt =
 
 FIT has no explicit `return` keyword — the last expression in a block is the implicit
 return value, and `?` handles early exits. No `return` statement node is needed.
+
+**`if/else` — `else` is syntactically required, not only semantically.** FIT-SYNTAX.md
+§5.1 shows `else` as part of the `if` form, not as an optional extension. With
+`else_: Stmt[]` (non-nullable), the parser throws if `else` is absent — it is a parse
+error, not a type error. A bare `if cond { ... }` without `else` is illegal in any FIT
+program regardless of whether linear values are in scope. Test programs must always
+include both branches.
 
 **Implicit return convention.** The checker treats the final statement of a function body
 as the return value as follows: if the last stmt has `kind: "expr"`, its expression is
@@ -108,6 +115,21 @@ projected atom by searching the local scope for a capability of the required typ
 `select` appears in `Stmt` because it mutates scope; placing it in `Expr` would require
 the checker to treat anonymous expression-statement results as live scope entries, which
 is a special rule inconsistent with how every other expression statement works.
+
+**`from` is a contextual keyword, not a reserved word.** FIT-SPEC-v2.md §9 does not
+list `from` in the reserved keywords. The parser must handle it literally: after reading
+the atom list in a `select` statement, `parseStmt` matches the character sequence `from`
+explicitly (e.g. `this.expect("from")`). It must not rely on a general reserved-word
+check, and it must not prevent a programmer from naming a variable `from` in other
+contexts.
+
+**`drop` is reserved but legal in call position.** `drop` appears in the reserved
+keywords list (FIT-SPEC-v2.md §9) yet FIT-SYNTAX.md §8 shows `drop(conn)` as a plain
+function call. The parser resolves this by allowing `drop` as a function name: when
+`parseExpr` reads the identifier `drop` followed by `(`, it produces
+`{ kind: "call", fn: "drop", args: [...] }` normally. `drop` is reserved to prevent
+user-defined types or functions from shadowing the built-in, not to make it
+unparseable.
 
 **Rebind consumes the previous value.** `x = expr` (`kind: "rebind"`) is not assignment
 in the C sense. For a binding `x` holding a linear resource, the rebind:
@@ -151,6 +173,54 @@ type Pattern    =
 `VariantDef.payload` is null for unit variants (e.g. `None`, `Closed`).
 `Pattern.binds` covers zero binds (`None`), one bind (`Some(msg)`), and two binds
 (`Some(msg, rest)` where the variant wraps a two-field record).
+
+**`Ok` and `Err` in pattern position.** The `Expr` union has special `ok` and `err`
+nodes for constructing `Result` values. In *pattern* position, `Ok(v)` and `Err(e)` flow
+through `Pattern.variant` — `{ kind: "variant", name: "Ok", binds: ["v"] }` — not
+through any special result node. The parser disambiguates by context: `parseExpr` sees
+`Ok(` and emits `{ kind: "ok" }`; `parsePattern` sees `Ok(` and emits
+`{ kind: "variant", name: "Ok" }`. The two parse paths are distinct and must not share
+logic. The canonical programs do not match on `Result` directly (they use `?`), but test
+programs in `should_pass`/`should_fail` may.
+
+---
+
+## Undeclared symbol policy
+
+Both canonical programs reference types and functions that are never declared in the
+source file:
+
+| Symbol | Used in | Type |
+|--------|---------|------|
+| `next` | smtp.fit `deliver_batch` | function |
+| `List<Message>`, `Message` | smtp.fit | types |
+| `Credentials`, `String` | smtp.fit | types |
+| `TcpSocket`, `IoError` | smtp.fit | types |
+| `CardDetails`, `Cents`, `Receipt`, `TokenId` | payment.fit | types |
+
+The parser accepts all of these as plain identifiers — no parser-level error. The checker
+needs an explicit policy or it will crash on the canonical programs:
+
+1. **Undeclared types are unrestricted plain data by default.** The checker treats any
+   type name with no `record`, `enum`, or `resource` declaration as an unrestricted
+   (non-linear) value. This is consistent with FIT-SPEC-v2.md §2.1: "Default is
+   unrestricted." It means the checker cannot verify linearity properties *about* those
+   types, but it will not raise false errors on programs that use them.
+
+2. **Undeclared functions are trusted.** The checker uses the declared signature (params
+   and return type) as-is and applies the lend/move heuristic for bodyless functions.
+   It does not error on "function not defined."
+
+3. **Match exhaustiveness is skipped for undeclared scrutinee types.** When the
+   scrutinee of a `match` has an undeclared type (e.g. the return of `next`), the
+   checker cannot enumerate expected variants. It accepts the match without exhaustiveness
+   verification. This is the only instance where the checker silently skips a rule —
+   it should be logged as a limitation in checker output if possible.
+
+This policy allows the canonical programs to pass without requiring every referenced
+type to be in-file. If a test program in Step 5 requires exhaustiveness checking on an
+undeclared type, add a minimal declaration to that test file rather than changing the
+policy.
 
 ---
 
@@ -233,8 +303,9 @@ class Parser {
   private parseFn(): Decl
   private parseType(): Type
   private parseBlock(): Stmt[]
-  private parseStmt(): Stmt    // dispatches on: let, if, loop, match, break, select, expr
+  private parseStmt(): Stmt      // dispatches on: let, if, loop, match, break, select, expr
   private parseExpr(): Expr
+  private parsePattern(): Pattern // distinct from parseExpr; Ok(x) → variant, not ok-expr
 }
 
 export function parse(src: string, filename: string): Program
