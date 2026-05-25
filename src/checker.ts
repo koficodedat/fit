@@ -5,6 +5,7 @@ export type CheckError = { message: string; pos: Pos };
 
 type Binding = { type_: FitType; owned: boolean; moved: boolean };
 type Scope = Map<string, Binding>;
+type CapScope = Set<string>;
 
 export function check(program: Program): CheckError[] {
   const env = buildTypeEnv(program);
@@ -19,6 +20,7 @@ export function check(program: Program): CheckError[] {
 
 function checkFn(fnName: string, body: Stmt[], env: TypeEnv, errors: CheckError[]): void {
   const scope: Scope = new Map();
+  const caps: CapScope = new Set();
   const sig = env.functions.get(fnName);
   if (sig) {
     for (const param of sig.params) {
@@ -28,23 +30,24 @@ function checkFn(fnName: string, body: Stmt[], env: TypeEnv, errors: CheckError[
         moved: false,
       });
     }
+    for (const cap of sig.caps) caps.add(cap);
   }
-  checkStmts(body, scope, env, errors);
+  checkStmts(body, scope, caps, env, errors);
 }
 
-function checkStmts(stmts: Stmt[], scope: Scope, env: TypeEnv, errors: CheckError[]): void {
+function checkStmts(stmts: Stmt[], scope: Scope, caps: CapScope, env: TypeEnv, errors: CheckError[]): void {
   for (const stmt of stmts) {
-    checkStmt(stmt, scope, env, errors);
+    checkStmt(stmt, scope, caps, env, errors);
   }
 }
 
-function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[]): void {
+function checkStmt(stmt: Stmt, scope: Scope, caps: CapScope, env: TypeEnv, errors: CheckError[]): void {
   switch (stmt.kind) {
     case "expr":
-      checkExpr(stmt.expr, scope, env, errors);
+      checkExpr(stmt.expr, scope, caps, env, errors);
       break;
     case "let": {
-      const initType = checkExpr(stmt.init, scope, env, errors);
+      const initType = checkExpr(stmt.init, scope, caps, env, errors);
       scope.set(stmt.name, { type_: initType, owned: true, moved: false });
       break;
     }
@@ -53,17 +56,17 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
         errors.push({ message: `cannot rebind undefined variable '${stmt.name}'`, pos: stmt.pos });
         break;
       }
-      const newType = checkExpr(stmt.expr, scope, env, errors);
+      const newType = checkExpr(stmt.expr, scope, caps, env, errors);
       // Old linear value gets auto-cleaned on rebind — not an error.
       scope.set(stmt.name, { type_: newType, owned: true, moved: false });
       break;
     }
     case "if": {
-      checkExpr(stmt.cond, scope, env, errors);
+      checkExpr(stmt.cond, scope, caps, env, errors);
       const thenScope = cloneScope(scope);
       const elseScope = cloneScope(scope);
-      checkStmts(stmt.then, thenScope, env, errors);
-      checkStmts(stmt.else_, elseScope, env, errors);
+      checkStmts(stmt.then, thenScope, caps, env, errors);
+      checkStmts(stmt.else_, elseScope, caps, env, errors);
       const merged = mergeScopes(scope, [thenScope, elseScope], errors, stmt.pos);
       for (const [k, v] of merged) scope.set(k, v);
       break;
@@ -71,7 +74,7 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
     case "loop": {
       const snap = snapshotTypestates(scope);
       const bodyScope = cloneScope(scope);
-      checkStmts(stmt.body, bodyScope, env, errors);
+      checkStmts(stmt.body, bodyScope, caps, env, errors);
 
       for (const [name, beforeState] of snap) {
         const afterBind = bodyScope.get(name);
@@ -84,7 +87,6 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
         }
       }
 
-      // Propagate moves from loop body back to outer scope
       for (const [name, binding] of scope) {
         if (bodyScope.get(name)?.moved) binding.moved = true;
       }
@@ -92,9 +94,10 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
     }
 
     case "break":  break; // still-owned linears get auto-cleaned; no linearity checker action
-    case "select": break; // capability projection — Step 4 handles this
+    case "select": break; // capability projection — Task 3 implements this; no-op for now
+
     case "match": {
-      checkExpr(stmt.expr, scope, env, errors);
+      checkExpr(stmt.expr, scope, caps, env, errors);
       const branchScopes: Scope[] = [];
       for (const arm of stmt.arms) {
         const armScope = cloneScope(scope);
@@ -107,7 +110,7 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
             });
           }
         }
-        checkStmts(arm.body, armScope, env, errors);
+        checkStmts(arm.body, armScope, caps, env, errors);
         branchScopes.push(armScope);
       }
       const merged = mergeScopes(scope, branchScopes, errors, stmt.pos);
@@ -120,7 +123,7 @@ function checkStmt(stmt: Stmt, scope: Scope, env: TypeEnv, errors: CheckError[])
   }
 }
 
-function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[]): FitType {
+function checkExpr(expr: Expr, scope: Scope, caps: CapScope, env: TypeEnv, errors: CheckError[]): FitType {
   switch (expr.kind) {
     case "unit_val":
       return { kind: "unit", mode: "unrestricted" };
@@ -138,7 +141,7 @@ function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[])
     }
 
     case "ok": {
-      const inner = checkExpr(expr.expr, scope, env, errors);
+      const inner = checkExpr(expr.expr, scope, caps, env, errors);
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
       }
@@ -146,7 +149,7 @@ function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[])
     }
 
     case "err": {
-      const inner = checkExpr(expr.expr, scope, env, errors);
+      const inner = checkExpr(expr.expr, scope, caps, env, errors);
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
       }
@@ -154,17 +157,17 @@ function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[])
     }
 
     case "call": {
-      // drop is a built-in consuming sink
+      // drop is a built-in consuming sink — no capability requirements
       if (expr.fn === "drop" && expr.args.length === 1 && expr.args[0].kind === "var") {
-        checkExpr(expr.args[0], scope, env, errors);
+        checkExpr(expr.args[0], scope, caps, env, errors);
         consumeBinding(expr.args[0].name, scope, errors, expr.args[0].pos);
         return { kind: "unit", mode: "unrestricted" };
       }
 
       const sig = env.functions.get(expr.fn);
       if (!sig) {
-        // Unknown function: evaluate all args as lend (no consumption)
-        for (const arg of expr.args) checkExpr(arg, scope, env, errors);
+        // Unknown function: evaluate all args as lend (no consumption), skip cap check
+        for (const arg of expr.args) checkExpr(arg, scope, caps, env, errors);
         return { kind: "plain", mode: "unrestricted", name: "?" };
       }
 
@@ -175,11 +178,10 @@ function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[])
           errors.push({ message: `not enough arguments to '${expr.fn}'`, pos: expr.pos });
           continue;
         }
-        checkExpr(arg, scope, env, errors);
+        checkExpr(arg, scope, caps, env, errors);
 
         if (arg.kind === "var") {
           const binding = scope.get(arg.name);
-          // Typestate verification: only when both param and binding carry a named typestate
           if (
             binding &&
             param.type_.kind === "resource" && param.type_.typeState !== null &&
@@ -202,7 +204,7 @@ function checkExpr(expr: Expr, scope: Scope, env: TypeEnv, errors: CheckError[])
     }
 
     case "try": {
-      const innerType = checkExpr(expr.expr, scope, env, errors);
+      const innerType = checkExpr(expr.expr, scope, caps, env, errors);
       if (innerType.kind !== "result") {
         errors.push({ message: `'?' applied to non-Result type`, pos: expr.pos });
         return { kind: "plain", mode: "unrestricted", name: "?" };
