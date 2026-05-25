@@ -151,3 +151,68 @@ describe("resolveType", () => {
     });
   });
 });
+
+describe("inferParamMode", () => {
+  it("move: param base type matches named return type directly", () => {
+    const ret: Type = { kind: "named", name: "Conn", typeArg: { kind: "named", name: "Ready", typeArg: null } };
+    expect(inferParamMode("Conn", ret)).toBe("move");
+  });
+
+  it("move: param base type found in Result ok branch", () => {
+    const ret: Type = {
+      kind: "result",
+      ok:  { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Greeted", typeArg: null } },
+      err: { kind: "named", name: "SessionError", typeArg: null },
+    };
+    expect(inferParamMode("SmtpConn", ret)).toBe("move");
+  });
+
+  it("move: param base type found in Result err branch only", () => {
+    // e.g. fn try_op(c: Conn<Fresh>) -> Result<(), Conn<Fresh>> — err branch carries the resource back
+    const ret: Type = {
+      kind: "result",
+      ok:  { kind: "unit" },
+      err: { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Fresh", typeArg: null } },
+    };
+    expect(inferParamMode("SmtpConn", ret)).toBe("move");
+  });
+
+  it("move: param type found in typeArg of named return", () => {
+    // e.g. fn wrap(c: SmtpConn<Ready>) -> Wrapper<SmtpConn>
+    const ret: Type = { kind: "named", name: "Wrapper", typeArg: { kind: "named", name: "SmtpConn", typeArg: null } };
+    expect(inferParamMode("SmtpConn", ret)).toBe("move");
+  });
+
+  it("lend: param base type not in return — send_message and close patterns", () => {
+    // send_message(c: SmtpConn<Ready>, ...) -> Result<(), ...>: lend is CORRECT (caller keeps c)
+    // close(c: SmtpConn<Closing>) -> Result<(), ...>: lend is WRONG (known gap — close consumes c,
+    //   but SmtpConn is absent from the return type so the heuristic cannot detect it)
+    const ret: Type = {
+      kind: "result",
+      ok:  { kind: "unit" },
+      err: { kind: "named", name: "SessionError", typeArg: null },
+    };
+    expect(inferParamMode("SmtpConn", ret)).toBe("lend");
+  });
+
+  it("lend: different type in return — validate_card pattern", () => {
+    // validate_card(card: CardDetails) -> Result<AuthToken, PaymentError>
+    // CardDetails not in return → lend (correct: caller doesn't lose card details)
+    const ret: Type = {
+      kind: "result",
+      ok:  { kind: "named", name: "AuthToken",    typeArg: null },
+      err: { kind: "named", name: "PaymentError", typeArg: null },
+    };
+    expect(inferParamMode("CardDetails", ret)).toBe("lend");
+  });
+
+  it("lend: unit return always produces lend", () => {
+    expect(inferParamMode("AuthToken", { kind: "unit" })).toBe("lend");
+  });
+
+  it("lend: empty base name never matches", () => {
+    // Result-typed or unit-typed params produce baseName="" in buildTypeEnv; never move.
+    const ret: Type = { kind: "named", name: "AuthToken", typeArg: null };
+    expect(inferParamMode("", ret)).toBe("lend");
+  });
+});

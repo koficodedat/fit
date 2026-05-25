@@ -50,8 +50,19 @@ export function resolveType(ast: Type, env: ResolveEnv): FitType {
   }
 }
 
-export function inferParamMode(_paramBaseName: string, _returnType: Type): ParamMode {
-  throw new Error("not implemented");
+// Does not expand aliases: "SessionError" would not match its member names ("SmtpError").
+// In FIT, type aliases are error unions only — resource aliasing doesn't arise in the PoC,
+// so alias non-expansion is an accepted limitation of the heuristic.
+function typeContainsName(t: Type, name: string): boolean {
+  switch (t.kind) {
+    case "unit":   return false;
+    case "named":  return t.name === name || (t.typeArg !== null && typeContainsName(t.typeArg, name));
+    case "result": return typeContainsName(t.ok, name) || typeContainsName(t.err, name);
+  }
+}
+
+export function inferParamMode(paramBaseName: string, returnType: Type): ParamMode {
+  return typeContainsName(returnType, paramBaseName) ? "move" : "lend";
 }
 
 export function buildTypeEnv(_program: Program): TypeEnv {
