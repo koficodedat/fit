@@ -106,3 +106,102 @@ describe("variable usage and move tracking", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
+
+describe("function calls", () => {
+  it("lend call does not consume the binding", () => {
+    // send_message lends c (SmtpConn<Ready> not in return type)
+    const src = `
+      resource SmtpConn<S> { cleanup: tcp_force_close }
+      fn send_message(c: SmtpConn<Ready>, msg: String) -> Result<(), String>
+      fn test(c: SmtpConn<Ready>) -> () {
+        send_message(c, ())
+        send_message(c, ())
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("move call consumes the binding — second use is use-after-move", () => {
+    // take_tok returns Tok so Tok IS in return type → mode="move"
+    const src = `
+      resource Tok { cleanup: drop_tok }
+      fn make_tok() -> Tok
+      fn take_tok(t: Tok) -> Tok
+      fn test() -> () {
+        let t = make_tok()
+        take_tok(t)
+        take_tok(t)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  it("call with wrong typestate produces an error", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn greet(c: Conn<Fresh>) -> Conn<Greeted>
+      fn test(c: Conn<Greeted>) -> () {
+        greet(c)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("typestate"))).toBe(true);
+    expect(errors.some(e => e.message.includes("Greeted"))).toBe(true);
+    expect(errors.some(e => e.message.includes("Fresh"))).toBe(true);
+  });
+
+  it("call with correct typestate produces no error", () => {
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn test(c: Conn<Fresh>) -> Result<Conn<Greeted>, String> {
+        greet(c)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("call to unknown function does not consume its args", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn take_foo(f: Foo) -> ()
+      fn test() -> () {
+        let f = make_foo()
+        ext_fn(f)
+        take_foo(f)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("drop() consumes the binding — second drop is use-after-move", () => {
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn test() -> () {
+        let f = make_foo()
+        drop(f)
+        drop(f)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  it("lend param cannot be consumed by a move call", () => {
+    // quit(c: Conn<Ready>) -> Conn<Closing>: Conn IS in return type → c's mode in quit is "move"
+    // test(c: Conn<Ready>) -> (): Conn NOT in return type → c in test is lend (owned=false)
+    // quit(c) inside test body: param.mode="move", c is owned=false → "cannot move borrowed value"
+    const src = `
+      resource Conn<S> { cleanup: drop_conn }
+      fn quit(c: Conn<Ready>) -> Conn<Closing>
+      fn test(c: Conn<Ready>) -> () {
+        quit(c)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some(e => e.message.includes("borrowed"))).toBe(true);
+  });
+});
