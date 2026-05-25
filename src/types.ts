@@ -11,7 +11,7 @@ export type FitType =
   | { kind: "resource"; mode: "linear";       name: string; typeState: string | null; cleanup: string; fallback: boolean }
   | { kind: "result";   mode: "unrestricted"; ok: FitType; err: FitType }
   | { kind: "unit";     mode: "unrestricted" }
-  | { kind: "alias";    mode: "unrestricted"; name: string; members: string[] };
+  | { kind: "alias";    mode: "unrestricted"; name: string; members: string[] }; // member names are unresolved — look up via ResolveEnv.aliases
 
 // name is redundant with the Map key in TypeEnv — kept so these types are self-contained
 // when passed around without their Map context.

@@ -57,4 +57,10 @@ describe("types module data structures", () => {
   it("exports buildTypeEnv as a function", () => {
     expect(typeof buildTypeEnv).toBe("function");
   });
+
+  it("TypeEnv is structurally assignable to ResolveEnv (Pick subset relationship)", () => {
+    const full: TypeEnv    = { resources: new Map(), aliases: new Map(), functions: new Map() };
+    const narrow: ResolveEnv = full;
+    expect(narrow.resources.size).toBe(0);
+  });
 });
