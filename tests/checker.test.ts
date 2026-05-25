@@ -1,4 +1,6 @@
 // tests/checker.test.ts
+import * as fs from "fs";
+import * as path from "path";
 import { check, CheckError } from "../src/checker";
 import { parse } from "../src/parser";
 
@@ -59,7 +61,7 @@ describe("variable usage and move tracking", () => {
     `;
     const errors = check(parse(src, "test.fit"));
     expect(errors.length).toBeGreaterThanOrEqual(1);
-    expect(errors.some(e => e.message.includes("ghost"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("ghost"))).toBe(true);
   });
 
   it("use-after-move will be detected after Task 3 adds call handling", () => {
@@ -134,7 +136,7 @@ describe("function calls", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
   });
 
   it("call with wrong typestate produces an error", () => {
@@ -146,9 +148,9 @@ describe("function calls", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("typestate"))).toBe(true);
-    expect(errors.some(e => e.message.includes("Greeted"))).toBe(true);
-    expect(errors.some(e => e.message.includes("Fresh"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("typestate"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("Greeted"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("Fresh"))).toBe(true);
   });
 
   it("call with correct typestate produces no error", () => {
@@ -187,7 +189,7 @@ describe("function calls", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
   });
 
   it("lend param cannot be consumed by a move call", () => {
@@ -202,7 +204,7 @@ describe("function calls", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("borrowed"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("borrowed"))).toBe(true);
   });
 });
 
@@ -278,7 +280,7 @@ describe("let, rebind, and try", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("non-Result"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("non-Result"))).toBe(true);
   });
 
   it("try propagates the correct ok type for later typestate use", () => {
@@ -332,8 +334,8 @@ describe("branch exhaustiveness", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("all branches"))).toBe(true);
-    expect(errors.some(e => e.message.includes("'f'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("all branches"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("'f'"))).toBe(true);
   });
 
   it("if where linear is consumed in neither branch — no error (auto-cleanup)", () => {
@@ -385,7 +387,7 @@ describe("branch exhaustiveness", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("all branches"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("all branches"))).toBe(true);
   });
 
   it("pattern bindings in match arms are accessible without error", () => {
@@ -432,8 +434,8 @@ describe("loop typestate invariant", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("loop body changes typestate"))).toBe(true);
-    expect(errors.some(e => e.message.includes("use recursion instead"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("loop body changes typestate"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("use recursion instead"))).toBe(true);
   });
 
   it("loop typestate error message names the binding and both states", () => {
@@ -448,7 +450,7 @@ describe("loop typestate invariant", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    const loopErr = errors.find(e => e.message.includes("loop body changes typestate"));
+    const loopErr = errors.find((e) => e.message.includes("loop body changes typestate"));
     expect(loopErr).toBeDefined();
     expect(loopErr!.message).toContain("'c'");
     expect(loopErr!.message).toContain("Fresh");
@@ -478,9 +480,6 @@ describe("loop typestate invariant", () => {
 });
 
 describe("canonical programs — integration", () => {
-  const fs   = require("fs");
-  const path = require("path");
-
   it("payment.fit produces no checker errors", () => {
     const src = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf-8");
     const errors = check(parse(src, "payment.fit"));
@@ -515,7 +514,7 @@ describe("stress tests — gaps and edge cases", () => {
     `;
     // t is linear, Ok(t) moves it into the result, take_tok(t) is use-after-move
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
   });
 
   // Test 2: Err(linear) also consumes the binding
@@ -531,7 +530,7 @@ describe("stress tests — gaps and edge cases", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
   });
 
   // Test 3: Ok(unrestricted) does NOT consume — guard check
@@ -563,7 +562,7 @@ describe("stress tests — gaps and edge cases", () => {
     // take_foo moves f (Foo in return type). lend_foo lends f (Foo not in return type).
     // After take_foo(f), f.moved=true. lend_foo(f) — checkExpr(var(f)) sees moved → error.
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
   });
 
   // Test 5: Wrong typestate — Fresh where Ready expected (CLAUDE.md direction)
@@ -577,9 +576,9 @@ describe("stress tests — gaps and edge cases", () => {
     `;
     // c has typeState "Fresh", send expects "Ready" — typestate mismatch
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("typestate"))).toBe(true);
-    expect(errors.some(e => e.message.includes("Fresh"))).toBe(true);
-    expect(errors.some(e => e.message.includes("Ready"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("typestate"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("Fresh"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("Ready"))).toBe(true);
   });
 
   // Test 6: rebind of undefined variable
@@ -591,7 +590,7 @@ describe("stress tests — gaps and edge cases", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("ghost"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("ghost"))).toBe(true);
   });
 
   // Test 7: Calling a known function with too few arguments
@@ -604,7 +603,7 @@ describe("stress tests — gaps and edge cases", () => {
     `;
     // use_two expects 2 params; called with 1 arg
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("not enough arguments"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("not enough arguments"))).toBe(true);
   });
 
   // Test 8: Wildcard pattern in match arm
@@ -644,7 +643,7 @@ describe("stress tests — gaps and edge cases", () => {
     // test(f: Foo) -> () — Foo not in return type → f is lend (owned=false)
     // drop(f) calls consumeBinding("f") → owned=false → "cannot move borrowed value"
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("borrowed"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("borrowed"))).toBe(true);
   });
 
   // Test 11: Two linear resources in scope simultaneously — independent consumption tracking
@@ -686,7 +685,7 @@ describe("stress tests — gaps and edge cases", () => {
     // Both branches move f. After if, mergeScopes sets f.moved=true.
     // lend_foo(f) — checkExpr(var(f)) → f.moved=true → error.
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
   });
 });
 
@@ -768,7 +767,9 @@ describe("select statement", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("'Fs'") && e.message.includes("select"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("'Fs'") && e.message.includes("select"))).toBe(
+      true
+    );
   });
 
   it("select with missing source still produces a cap error at the subsequent call", () => {
@@ -839,8 +840,8 @@ describe("capability checker gap coverage", () => {
     `;
     const errors = check(parse(src, "test.fit"));
     expect(errors).toHaveLength(2);
-    expect(errors.some(e => e.message.includes("'Net'"))).toBe(true);
-    expect(errors.some(e => e.message.includes("'ChargeCard'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("'Net'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("'ChargeCard'"))).toBe(true);
   });
 
   it("select in then-branch does NOT grant atom in else-branch (bug fix verification)", () => {
@@ -923,7 +924,9 @@ describe("capability checker gap coverage", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    const chargeErrors = errors.filter(e => e.message.includes("'ChargeCard'") && e.message.includes("execute_charge"));
+    const chargeErrors = errors.filter(
+      (e) => e.message.includes("'ChargeCard'") && e.message.includes("execute_charge")
+    );
     expect(chargeErrors).toHaveLength(1);
   });
 
@@ -975,7 +978,7 @@ describe("holistic gap coverage", () => {
     `;
     const errors = check(parse(src, "test.fit"));
     // Exactly one "already been moved" error for the second take_tok(t) call
-    const moveErrors = errors.filter(e => e.message.includes("already been moved"));
+    const moveErrors = errors.filter((e) => e.message.includes("already been moved"));
     expect(moveErrors).toHaveLength(1);
   });
 
@@ -1007,8 +1010,10 @@ describe("holistic gap coverage", () => {
     `;
     const errors = check(parse(src, "test.fit"));
     // One error for wrong typestate (Fresh != Ready), one for missing Net
-    expect(errors.some(e => e.message.includes("typestate") || e.message.includes("Fresh"))).toBe(true);
-    expect(errors.some(e => e.message.includes("missing capability 'Net'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("typestate") || e.message.includes("Fresh"))).toBe(
+      true
+    );
+    expect(errors.some((e) => e.message.includes("missing capability 'Net'"))).toBe(true);
   });
 
   it("select inside match arm does NOT make the atom available after the match", () => {
@@ -1029,7 +1034,7 @@ describe("holistic gap coverage", () => {
     `;
     // After the match, Read should NOT be in scope — it was only selected in one arm
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("missing capability 'Read'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("missing capability 'Read'"))).toBe(true);
   });
 
   it("select inside loop body enables cap-requiring calls within the same loop iteration", () => {
@@ -1061,7 +1066,7 @@ describe("holistic gap coverage", () => {
     `;
     // Read was only selected inside the loop body (cloned caps) — not in outer scope
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("missing capability 'Read'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("missing capability 'Read'"))).toBe(true);
   });
 
   it("function with linear param consumed by move call — returns normally with no error", () => {
@@ -1108,7 +1113,7 @@ describe("holistic gap coverage", () => {
     // In else-branch: Read was only selected in then-branch (cloned caps per branch)
     const errors = check(parse(src, "test.fit"));
     // The else-branch needs_read() should error (Read not in scope)
-    expect(errors.some(e => e.message.includes("missing capability 'Read'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("missing capability 'Read'"))).toBe(true);
   });
 });
 
@@ -1138,7 +1143,7 @@ describe("stress test gap coverage", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("already been moved"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
   });
 
   it("drop(non-var) emits an error and returns unit", () => {
@@ -1151,7 +1156,7 @@ describe("stress test gap coverage", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message === "drop requires a single variable argument")).toBe(true);
+    expect(errors.some((e) => e.message === "drop requires a single variable argument")).toBe(true);
   });
 
   it("drop() with zero args emits an error", () => {
@@ -1161,7 +1166,7 @@ describe("stress test gap coverage", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message === "drop requires a single variable argument")).toBe(true);
+    expect(errors.some((e) => e.message === "drop requires a single variable argument")).toBe(true);
   });
 
   it("too many arguments to a known function emits an error", () => {
@@ -1177,7 +1182,7 @@ describe("stress test gap coverage", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("too many arguments to 'use_tok'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("too many arguments to 'use_tok'"))).toBe(true);
   });
 
   it("extra arg that is an undefined variable gets caught", () => {
@@ -1189,7 +1194,7 @@ describe("stress test gap coverage", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some(e => e.message.includes("undefined variable 'ghost'"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("undefined variable 'ghost'"))).toBe(true);
   });
 
   it("loop typestate error message quotes the state names", () => {
@@ -1208,8 +1213,102 @@ describe("stress test gap coverage", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    const loopErr = errors.find(e => e.message.includes("loop body changes typestate"));
+    const loopErr = errors.find((e) => e.message.includes("loop body changes typestate"));
     expect(loopErr).toBeDefined();
     expect(loopErr!.message).toContain("from 'Ready' to 'Closing'");
+  });
+});
+
+describe("edge cases", () => {
+  it("recursive function does not crash or produce false errors", () => {
+    // A function that calls itself. The checker looks up the sig in env.functions
+    // (already present from the two-pass build). Recursion with a lend param is fine.
+    const src = `
+      fn count_down(n: Int) -> ()
+      fn count_down_body(n: Int) -> () {
+        count_down(n)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("direct self-recursive call compiles cleanly when param is lend", () => {
+    // run_loop lends c (SmtpConn not in return type), so the recursive call is valid.
+    const src = `
+      resource SmtpConn<S> { sock: Socket, cleanup: force_close }
+      fn send_msg(c: SmtpConn<Ready>, msg: String) -> ()
+      fn run_loop(c: SmtpConn<Ready>, msg: String) -> () {
+        send_msg(c, msg)
+        run_loop(c, msg)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("let-shadow of linear in one if-branch auto-cleans the old value — no error", () => {
+    // In the then-branch, 'let f = make_foo()' shadows the outer f.
+    // The outer f is auto-cleaned at that point (not a double-free; no explicit move needed).
+    // After the if, the outer f is still in scope (unaffected by then-branch shadow).
+    const src = `
+      resource Foo { cleanup: drop_foo }
+      fn make_foo() -> Foo
+      fn cond() -> String
+      fn test() -> () {
+        let f = make_foo()
+        if cond() {
+          let f = make_foo()
+        } else {
+        }
+        drop(f)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("function with no params and no caps calling another with caps — error", () => {
+    // Even a zero-param function must declare its caps.
+    const src = `
+      fn needs_net() using Net -> ()
+      fn empty_caller() -> () {
+        needs_net()
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some((e) => e.message.includes("missing capability 'Net'"))).toBe(true);
+  });
+
+  it("typestate-null resource (no <S> param) is checked for move semantics correctly", () => {
+    // Resources without <S> have typeState: null. Move semantics still apply.
+    const src = `
+      resource Handle { sock: Socket, cleanup: close_handle }
+      fn make_handle() -> Handle
+      fn consume_handle(h: Handle) -> Handle
+      fn test() -> () {
+        let h = make_handle()
+        consume_handle(h)
+        consume_handle(h)
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some((e) => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  it("select atom is available in nested if inside function — not leaked outside", () => {
+    // select inside a nested if-then-else: atom available in that arm only.
+    const src = `
+      capability Fs
+      fn cond_check() -> String
+      fn needs_read() using Read -> ()
+      fn do_work() using Fs -> () {
+        select Read from Fs
+        if cond_check() {
+          needs_read()
+        } else {
+          needs_read()
+        }
+      }
+    `;
+    // Read was selected at the function level — both branches should have it.
+    expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });

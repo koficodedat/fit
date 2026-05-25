@@ -8,7 +8,10 @@ const SHOULD_FAIL_DIR = path.join(__dirname, "should_fail");
 
 function fitFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter(f => f.endsWith(".fit")).sort();
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".fit"))
+    .sort();
 }
 
 describe("should_pass", () => {

@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import { parse } from "../src/parser";
 
 // ─── CONTEXTUAL KEYWORDS AS IDENTIFIERS ─────────────────────────────────────
@@ -204,8 +206,9 @@ test("safety: deeply nested match inside loop inside fn", () => {
 // ─── PERFORMANCE ─────────────────────────────────────────────────────────────
 
 test("perf: parse 200 fn signatures in under 100ms", () => {
-  const sigs = Array.from({ length: 200 }, (_, i) =>
-    `fn func_${i}(a: TypeA, b: TypeB) using Net -> Result<TypeC, TypeD>`
+  const sigs = Array.from(
+    { length: 200 },
+    (_, i) => `fn func_${i}(a: TypeA, b: TypeB) using Net -> Result<TypeC, TypeD>`
   ).join("\n");
   const start = Date.now();
   const prog = parse(sigs, "perf.fit");
@@ -215,12 +218,14 @@ test("perf: parse 200 fn signatures in under 100ms", () => {
 });
 
 test("perf: parse canonical programs under 10ms each", () => {
-  const fs = require("fs");
-  const path = require("path");
   const payment = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf8");
   const smtp = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
-  const t1 = Date.now(); parse(payment, "payment.fit"); const e1 = Date.now() - t1;
-  const t2 = Date.now(); parse(smtp, "smtp.fit"); const e2 = Date.now() - t2;
+  const t1 = Date.now();
+  parse(payment, "payment.fit");
+  const e1 = Date.now() - t1;
+  const t2 = Date.now();
+  parse(smtp, "smtp.fit");
+  const e2 = Date.now() - t2;
   expect(e1).toBeLessThan(50);
   expect(e2).toBeLessThan(50);
 });

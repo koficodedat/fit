@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { Program, Decl, Stmt, Expr, Type, Pattern } from "../src/ast";
+import { Program, Stmt } from "../src/ast";
 import { parse } from "../src/parser";
 
 test("ast types import", () => {
@@ -63,8 +63,14 @@ test("parse enum variants with payload", () => {
   const d = prog.decls[0];
   expect(d.kind).toBe("enum");
   if (d.kind === "enum") {
-    expect(d.variants[0]).toEqual({ name: "Data",  payload: { kind: "named", name: "Bytes",  typeArg: null } });
-    expect(d.variants[1]).toEqual({ name: "Error", payload: { kind: "named", name: "String", typeArg: null } });
+    expect(d.variants[0]).toEqual({
+      name: "Data",
+      payload: { kind: "named", name: "Bytes", typeArg: null },
+    });
+    expect(d.variants[1]).toEqual({
+      name: "Error",
+      payload: { kind: "named", name: "String", typeArg: null },
+    });
     expect(d.variants[2]).toEqual({ name: "Closed", payload: null });
   }
 });
@@ -123,7 +129,9 @@ test("parse fn signature only — no using", () => {
   expect(d.kind).toBe("fn");
   if (d.kind === "fn") {
     expect(d.name).toBe("greet");
-    expect(d.params).toEqual([{ name: "name", type_: { kind: "named", name: "String", typeArg: null } }]);
+    expect(d.params).toEqual([
+      { name: "name", type_: { kind: "named", name: "String", typeArg: null } },
+    ]);
     expect(d.caps).toEqual([]);
     expect(d.returnType).toEqual({ kind: "unit" });
     expect(d.body).toBeNull();
@@ -137,15 +145,18 @@ test("parse fn signature with using", () => {
     expect(d.caps).toEqual(["Net"]);
     expect(d.returnType).toEqual({
       kind: "result",
-      ok:  { kind: "named", name: "Response", typeArg: null },
-      err: { kind: "named", name: "IoError",  typeArg: null },
+      ok: { kind: "named", name: "Response", typeArg: null },
+      err: { kind: "named", name: "IoError", typeArg: null },
     });
     expect(d.body).toBeNull();
   }
 });
 
 test("parse fn signature with multiple caps", () => {
-  const prog = parse("fn charge(token: AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>", "t.fit");
+  const prog = parse(
+    "fn charge(token: AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>",
+    "t.fit"
+  );
   const d = prog.decls[0];
   if (d.kind === "fn") {
     expect(d.caps).toEqual(["Net", "ChargeCard"]);
@@ -153,12 +164,19 @@ test("parse fn signature with multiple caps", () => {
 });
 
 test("parse fn signature with typestate param type", () => {
-  const prog = parse("fn connect(host: String) using Net -> Result<SmtpConn<Fresh>, SessionError>", "t.fit");
+  const prog = parse(
+    "fn connect(host: String) using Net -> Result<SmtpConn<Fresh>, SessionError>",
+    "t.fit"
+  );
   const d = prog.decls[0];
   if (d.kind === "fn") {
     expect(d.returnType).toEqual({
       kind: "result",
-      ok: { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Fresh", typeArg: null } },
+      ok: {
+        kind: "named",
+        name: "SmtpConn",
+        typeArg: { kind: "named", name: "Fresh", typeArg: null },
+      },
       err: { kind: "named", name: "SessionError", typeArg: null },
     });
   }
@@ -370,7 +388,7 @@ test("parse payment.fit — no errors", () => {
 test("parse payment.fit — process_payment body", () => {
   const src = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf8");
   const prog = parse(src, "payment.fit");
-  const fn_ = prog.decls.find(d => d.kind === "fn" && d.name === "process_payment");
+  const fn_ = prog.decls.find((d) => d.kind === "fn" && d.name === "process_payment");
   expect(fn_).toBeDefined();
   if (fn_?.kind === "fn") {
     expect(fn_.body).not.toBeNull();
@@ -390,7 +408,7 @@ test("parse smtp.fit — no errors", () => {
 test("parse smtp.fit — deliver_batch body", () => {
   const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
   const prog = parse(src, "smtp.fit");
-  const fn_ = prog.decls.find(d => d.kind === "fn" && d.name === "deliver_batch");
+  const fn_ = prog.decls.find((d) => d.kind === "fn" && d.name === "deliver_batch");
   if (fn_?.kind !== "fn" || fn_.body === null) throw new Error("missing deliver_batch");
   // let mut remaining, loop, Ok(())
   expect(fn_.body).toHaveLength(3);
@@ -405,7 +423,7 @@ test("parse smtp.fit — deliver_batch body", () => {
 test("parse smtp.fit — run_session body", () => {
   const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
   const prog = parse(src, "smtp.fit");
-  const fn_ = prog.decls.find(d => d.kind === "fn" && d.name === "run_session");
+  const fn_ = prog.decls.find((d) => d.kind === "fn" && d.name === "run_session");
   if (fn_?.kind !== "fn" || fn_.body === null) throw new Error("missing run_session");
   // let c x4, deliver_batch?, let c = quit?, close(c) = 7 stmts
   expect(fn_.body).toHaveLength(7);

@@ -23,14 +23,17 @@ test("error: record field missing colon", () => {
 });
 
 test("error: record missing close brace (EOF)", () => {
-  expect(() => parse("record Point { x: Int", "t.fit")).toThrow(/expected '}'|expected identifier|unterminated/);
+  expect(() => parse("record Point { x: Int", "t.fit")).toThrow(
+    /expected '}'|expected identifier|unterminated/
+  );
 });
 
 // ─── RESOURCE ERRORS ─────────────────────────────────────────────────────────
 
 test("error: resource missing cleanup field", () => {
-  expect(() => parse("resource File { handle: FileHandle, }", "t.fit"))
-    .toThrow(/resource 'File' missing cleanup field/);
+  expect(() => parse("resource File { handle: FileHandle, }", "t.fit")).toThrow(
+    /resource 'File' missing cleanup field/
+  );
 });
 
 test("error: resource missing open brace", () => {
@@ -79,13 +82,13 @@ test("error: let missing equals", () => {
 });
 
 test("error: if missing else", () => {
-  expect(() => parse("fn f() -> () { if x { a() } }", "t.fit"))
-    .toThrow(/expected 'else' after if block/);
+  expect(() => parse("fn f() -> () { if x { a() } }", "t.fit")).toThrow(
+    /expected 'else' after if block/
+  );
 });
 
 test("error: match arm missing arrow", () => {
-  expect(() => parse("fn f() -> () { match x { None break } }", "t.fit"))
-    .toThrow(/expected '=>'/);
+  expect(() => parse("fn f() -> () { match x { None break } }", "t.fit")).toThrow(/expected '=>'/);
 });
 
 test("error: unclosed block comment", () => {
@@ -93,7 +96,9 @@ test("error: unclosed block comment", () => {
 });
 
 test("error: unterminated block in fn body", () => {
-  expect(() => parse("fn f() -> () { let x = foo", "t.fit")).toThrow(/expected '}'|expected identifier/);
+  expect(() => parse("fn f() -> () { let x = foo", "t.fit")).toThrow(
+    /expected '}'|expected identifier/
+  );
 });
 
 // ─── LOCATION ACCURACY ───────────────────────────────────────────────────────
@@ -110,14 +115,18 @@ test("error location: correct col reported", () => {
   // The error fires at col 8.
   const src = "record {";
   let errMsg = "";
-  try { parse(src, "t.fit"); } catch(e) { errMsg = String(e); }
-  expect(errMsg).toMatch(/t\.fit:1:\d+:/);  // has line:col format
+  try {
+    parse(src, "t.fit");
+  } catch (e) {
+    errMsg = String(e);
+  }
+  expect(errMsg).toMatch(/t\.fit:1:\d+:/); // has line:col format
   // Extract the column from the error message
   const match = errMsg.match(/t\.fit:1:(\d+):/);
   expect(match).not.toBeNull();
   if (match) {
     const col = parseInt(match[1], 10);
-    expect(col).toBeGreaterThan(0);  // column is positive
-    expect(col).toBeLessThanOrEqual(10);  // '{' is within first 10 chars
+    expect(col).toBeGreaterThan(0); // column is positive
+    expect(col).toBeLessThanOrEqual(10); // '{' is within first 10 chars
   }
 });

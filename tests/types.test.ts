@@ -1,7 +1,11 @@
 // tests/types.test.ts
 import {
-  FitType, ResolveEnv, TypeEnv,
-  resolveType, inferParamMode, buildTypeEnv,
+  FitType,
+  ResolveEnv,
+  TypeEnv,
+  resolveType,
+  inferParamMode,
+  buildTypeEnv,
 } from "../src/types";
 import { Type } from "../src/ast";
 import * as fs from "fs";
@@ -16,16 +20,20 @@ describe("types module data structures", () => {
 
   it("can construct a FitType.resource value", () => {
     const t: FitType = {
-      kind: "resource", mode: "linear",
-      name: "AuthToken", typeState: null, cleanup: "void_token", fallback: false,
+      kind: "resource",
+      mode: "linear",
+      name: "AuthToken",
+      typeState: null,
+      cleanup: "void_token",
+      fallback: false,
     };
     expect(t.kind).toBe("resource");
   });
 
   it("can construct a FitType.result value", () => {
-    const ok: FitType  = { kind: "plain",  mode: "unrestricted", name: "Receipt" };
-    const err: FitType = { kind: "plain",  mode: "unrestricted", name: "PaymentError" };
-    const t: FitType   = { kind: "result", mode: "unrestricted", ok, err };
+    const ok: FitType = { kind: "plain", mode: "unrestricted", name: "Receipt" };
+    const err: FitType = { kind: "plain", mode: "unrestricted", name: "PaymentError" };
+    const t: FitType = { kind: "result", mode: "unrestricted", ok, err };
     expect(t.kind).toBe("result");
   });
 
@@ -35,7 +43,12 @@ describe("types module data structures", () => {
   });
 
   it("can construct a FitType.alias value", () => {
-    const t: FitType = { kind: "alias", mode: "unrestricted", name: "SessionError", members: ["SmtpError", "IoError"] };
+    const t: FitType = {
+      kind: "alias",
+      mode: "unrestricted",
+      name: "SessionError",
+      members: ["SmtpError", "IoError"],
+    };
     expect(t.kind).toBe("alias");
   });
 
@@ -62,7 +75,7 @@ describe("types module data structures", () => {
   });
 
   it("TypeEnv is structurally assignable to ResolveEnv (Pick subset relationship)", () => {
-    const full: TypeEnv    = { resources: new Map(), aliases: new Map(), functions: new Map() };
+    const full: TypeEnv = { resources: new Map(), aliases: new Map(), functions: new Map() };
     const narrow: ResolveEnv = full;
     expect(narrow.resources.size).toBe(0);
   });
@@ -71,12 +84,13 @@ describe("types module data structures", () => {
 describe("resolveType", () => {
   const testEnv: ResolveEnv = {
     resources: new Map([
-      ["AuthToken", { name: "AuthToken", typeParam: null, cleanup: "void_token",      fallback: false }],
-      ["SmtpConn",  { name: "SmtpConn",  typeParam: "S",  cleanup: "tcp_force_close", fallback: false }],
+      ["AuthToken", { name: "AuthToken", typeParam: null, cleanup: "void_token", fallback: false }],
+      [
+        "SmtpConn",
+        { name: "SmtpConn", typeParam: "S", cleanup: "tcp_force_close", fallback: false },
+      ],
     ]),
-    aliases: new Map([
-      ["SessionError", ["SmtpError", "IoError"]],
-    ]),
+    aliases: new Map([["SessionError", ["SmtpError", "IoError"]]]),
   };
 
   it("resolves unit type", () => {
@@ -84,65 +98,111 @@ describe("resolveType", () => {
   });
 
   it("resolves undeclared named type as plain unrestricted", () => {
-    expect(resolveType({ kind: "named", name: "String", typeArg: null }, testEnv))
-      .toEqual({ kind: "plain", mode: "unrestricted", name: "String" });
+    expect(resolveType({ kind: "named", name: "String", typeArg: null }, testEnv)).toEqual({
+      kind: "plain",
+      mode: "unrestricted",
+      name: "String",
+    });
   });
 
   it("resolves declared resource without typestate", () => {
-    expect(resolveType({ kind: "named", name: "AuthToken", typeArg: null }, testEnv))
-      .toEqual({ kind: "resource", mode: "linear", name: "AuthToken", typeState: null, cleanup: "void_token", fallback: false });
+    expect(resolveType({ kind: "named", name: "AuthToken", typeArg: null }, testEnv)).toEqual({
+      kind: "resource",
+      mode: "linear",
+      name: "AuthToken",
+      typeState: null,
+      cleanup: "void_token",
+      fallback: false,
+    });
   });
 
   it("resolves resource with typestate argument", () => {
-    const ast: Type = { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Ready", typeArg: null } };
-    expect(resolveType(ast, testEnv))
-      .toEqual({ kind: "resource", mode: "linear", name: "SmtpConn", typeState: "Ready", cleanup: "tcp_force_close", fallback: false });
+    const ast: Type = {
+      kind: "named",
+      name: "SmtpConn",
+      typeArg: { kind: "named", name: "Ready", typeArg: null },
+    };
+    expect(resolveType(ast, testEnv)).toEqual({
+      kind: "resource",
+      mode: "linear",
+      name: "SmtpConn",
+      typeState: "Ready",
+      cleanup: "tcp_force_close",
+      fallback: false,
+    });
   });
 
   it("resolves alias type", () => {
-    expect(resolveType({ kind: "named", name: "SessionError", typeArg: null }, testEnv))
-      .toEqual({ kind: "alias", mode: "unrestricted", name: "SessionError", members: ["SmtpError", "IoError"] });
+    expect(resolveType({ kind: "named", name: "SessionError", typeArg: null }, testEnv)).toEqual({
+      kind: "alias",
+      mode: "unrestricted",
+      name: "SessionError",
+      members: ["SmtpError", "IoError"],
+    });
   });
 
   it("resolves Result<AuthToken, PaymentError> — ok is resource, err is plain", () => {
     const ast: Type = {
       kind: "result",
-      ok:  { kind: "named", name: "AuthToken",    typeArg: null },
+      ok: { kind: "named", name: "AuthToken", typeArg: null },
       err: { kind: "named", name: "PaymentError", typeArg: null },
     };
     expect(resolveType(ast, testEnv)).toEqual({
       kind: "result",
       mode: "unrestricted",
-      ok:  { kind: "resource", mode: "linear",      name: "AuthToken", typeState: null, cleanup: "void_token", fallback: false },
-      err: { kind: "plain",    mode: "unrestricted", name: "PaymentError" },
+      ok: {
+        kind: "resource",
+        mode: "linear",
+        name: "AuthToken",
+        typeState: null,
+        cleanup: "void_token",
+        fallback: false,
+      },
+      err: { kind: "plain", mode: "unrestricted", name: "PaymentError" },
     });
   });
 
   it("resolves Result<(), SessionError> — ok is unit, err is alias", () => {
     const ast: Type = {
       kind: "result",
-      ok:  { kind: "unit" },
+      ok: { kind: "unit" },
       err: { kind: "named", name: "SessionError", typeArg: null },
     };
     expect(resolveType(ast, testEnv)).toEqual({
       kind: "result",
       mode: "unrestricted",
-      ok:  { kind: "unit",  mode: "unrestricted" },
-      err: { kind: "alias", mode: "unrestricted", name: "SessionError", members: ["SmtpError", "IoError"] },
+      ok: { kind: "unit", mode: "unrestricted" },
+      err: {
+        kind: "alias",
+        mode: "unrestricted",
+        name: "SessionError",
+        members: ["SmtpError", "IoError"],
+      },
     });
   });
 
   it("resolves Result<(), SmtpConn<Closing>> — err branch is a resource", () => {
     const ast: Type = {
       kind: "result",
-      ok:  { kind: "unit" },
-      err: { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Closing", typeArg: null } },
+      ok: { kind: "unit" },
+      err: {
+        kind: "named",
+        name: "SmtpConn",
+        typeArg: { kind: "named", name: "Closing", typeArg: null },
+      },
     };
     expect(resolveType(ast, testEnv)).toEqual({
       kind: "result",
       mode: "unrestricted",
-      ok:  { kind: "unit",     mode: "unrestricted" },
-      err: { kind: "resource", mode: "linear", name: "SmtpConn", typeState: "Closing", cleanup: "tcp_force_close", fallback: false },
+      ok: { kind: "unit", mode: "unrestricted" },
+      err: {
+        kind: "resource",
+        mode: "linear",
+        name: "SmtpConn",
+        typeState: "Closing",
+        cleanup: "tcp_force_close",
+        fallback: false,
+      },
     });
   });
 
@@ -154,14 +214,22 @@ describe("resolveType", () => {
   it("resolves Result<Result<A, E1>, E2> — nested Result ok branch", () => {
     const ast: Type = {
       kind: "result",
-      ok:  { kind: "result", ok: { kind: "named", name: "A", typeArg: null }, err: { kind: "named", name: "E1", typeArg: null } },
+      ok: {
+        kind: "result",
+        ok: { kind: "named", name: "A", typeArg: null },
+        err: { kind: "named", name: "E1", typeArg: null },
+      },
       err: { kind: "named", name: "E2", typeArg: null },
     };
     expect(resolveType(ast, testEnv)).toEqual({
-      kind: "result", mode: "unrestricted",
-      ok:  { kind: "result", mode: "unrestricted",
-             ok:  { kind: "plain", mode: "unrestricted", name: "A" },
-             err: { kind: "plain", mode: "unrestricted", name: "E1" } },
+      kind: "result",
+      mode: "unrestricted",
+      ok: {
+        kind: "result",
+        mode: "unrestricted",
+        ok: { kind: "plain", mode: "unrestricted", name: "A" },
+        err: { kind: "plain", mode: "unrestricted", name: "E1" },
+      },
       err: { kind: "plain", mode: "unrestricted", name: "E2" },
     });
   });
@@ -172,25 +240,34 @@ describe("resolveType", () => {
     const envWithNestedAlias: ResolveEnv = {
       resources: new Map(),
       aliases: new Map([
-        ["B",          ["X", "Y"]],
-        ["AliasOfB",   ["B", "Z"]],
+        ["B", ["X", "Y"]],
+        ["AliasOfB", ["B", "Z"]],
       ]),
     };
-    expect(resolveType({ kind: "named", name: "AliasOfB", typeArg: null }, envWithNestedAlias))
-      .toEqual({ kind: "alias", mode: "unrestricted", name: "AliasOfB", members: ["B", "Z"] });
+    expect(
+      resolveType({ kind: "named", name: "AliasOfB", typeArg: null }, envWithNestedAlias)
+    ).toEqual({ kind: "alias", mode: "unrestricted", name: "AliasOfB", members: ["B", "Z"] });
   });
 });
 
 describe("inferParamMode", () => {
   it("move: param base type matches named return type directly", () => {
-    const ret: Type = { kind: "named", name: "Conn", typeArg: { kind: "named", name: "Ready", typeArg: null } };
+    const ret: Type = {
+      kind: "named",
+      name: "Conn",
+      typeArg: { kind: "named", name: "Ready", typeArg: null },
+    };
     expect(inferParamMode("Conn", ret)).toBe("move");
   });
 
   it("move: param base type found in Result ok branch", () => {
     const ret: Type = {
       kind: "result",
-      ok:  { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Greeted", typeArg: null } },
+      ok: {
+        kind: "named",
+        name: "SmtpConn",
+        typeArg: { kind: "named", name: "Greeted", typeArg: null },
+      },
       err: { kind: "named", name: "SessionError", typeArg: null },
     };
     expect(inferParamMode("SmtpConn", ret)).toBe("move");
@@ -200,8 +277,12 @@ describe("inferParamMode", () => {
     // e.g. fn try_op(c: Conn<Fresh>) -> Result<(), Conn<Fresh>> — err branch carries the resource back
     const ret: Type = {
       kind: "result",
-      ok:  { kind: "unit" },
-      err: { kind: "named", name: "SmtpConn", typeArg: { kind: "named", name: "Fresh", typeArg: null } },
+      ok: { kind: "unit" },
+      err: {
+        kind: "named",
+        name: "SmtpConn",
+        typeArg: { kind: "named", name: "Fresh", typeArg: null },
+      },
     };
     expect(inferParamMode("SmtpConn", ret)).toBe("move");
   });
@@ -211,7 +292,11 @@ describe("inferParamMode", () => {
     // SmtpConn appears as a typeArg of Wrapper, so the heuristic infers "move".
     // This may be wrong if the function only reads c rather than consuming it —
     // the heuristic cannot distinguish wrapping from consuming.
-    const ret: Type = { kind: "named", name: "Wrapper", typeArg: { kind: "named", name: "SmtpConn", typeArg: null } };
+    const ret: Type = {
+      kind: "named",
+      name: "Wrapper",
+      typeArg: { kind: "named", name: "SmtpConn", typeArg: null },
+    };
     expect(inferParamMode("SmtpConn", ret)).toBe("move");
   });
 
@@ -221,7 +306,7 @@ describe("inferParamMode", () => {
     //   but SmtpConn is absent from the return type so the heuristic cannot detect it)
     const ret: Type = {
       kind: "result",
-      ok:  { kind: "unit" },
+      ok: { kind: "unit" },
       err: { kind: "named", name: "SessionError", typeArg: null },
     };
     expect(inferParamMode("SmtpConn", ret)).toBe("lend");
@@ -232,7 +317,7 @@ describe("inferParamMode", () => {
     // CardDetails not in return → lend (correct: caller doesn't lose card details)
     const ret: Type = {
       kind: "result",
-      ok:  { kind: "named", name: "AuthToken",    typeArg: null },
+      ok: { kind: "named", name: "AuthToken", typeArg: null },
       err: { kind: "named", name: "PaymentError", typeArg: null },
     };
     expect(inferParamMode("CardDetails", ret)).toBe("lend");
@@ -258,7 +343,10 @@ describe("buildTypeEnv — payment.fit", () => {
 
   it("registers AuthToken as a linear resource with cleanup void_token", () => {
     expect(env.resources.get("AuthToken")).toEqual({
-      name: "AuthToken", typeParam: null, cleanup: "void_token", fallback: false,
+      name: "AuthToken",
+      typeParam: null,
+      cleanup: "void_token",
+      fallback: false,
     });
   });
 
@@ -316,7 +404,10 @@ describe("buildTypeEnv — smtp.fit", () => {
 
   it("registers SmtpConn as a resource with typeParam S", () => {
     expect(env.resources.get("SmtpConn")).toEqual({
-      name: "SmtpConn", typeParam: "S", cleanup: "tcp_force_close", fallback: false,
+      name: "SmtpConn",
+      typeParam: "S",
+      cleanup: "tcp_force_close",
+      fallback: false,
     });
   });
 
@@ -339,7 +430,7 @@ describe("buildTypeEnv — smtp.fit", () => {
   it("auth: c is move, creds is lend", () => {
     const sig = env.functions.get("auth");
     expect(sig).toBeDefined();
-    expect(sig!.params[0]).toMatchObject({ name: "c",     mode: "move" });
+    expect(sig!.params[0]).toMatchObject({ name: "c", mode: "move" });
     expect(sig!.params[1]).toMatchObject({ name: "creds", mode: "lend" });
   });
 
@@ -363,8 +454,12 @@ describe("buildTypeEnv — smtp.fit", () => {
     expect(ret.kind).toBe("result");
     if (ret.kind === "result") {
       expect(ret.ok).toEqual({
-        kind: "resource", mode: "linear",
-        name: "SmtpConn", typeState: "Greeted", cleanup: "tcp_force_close", fallback: false,
+        kind: "resource",
+        mode: "linear",
+        name: "SmtpConn",
+        typeState: "Greeted",
+        cleanup: "tcp_force_close",
+        fallback: false,
       });
     }
   });
@@ -383,7 +478,12 @@ describe("buildTypeEnv — smtp.fit", () => {
     expect(ret.kind).toBe("result");
     if (ret.kind === "result") {
       expect(ret.ok.kind).toBe("unit");
-      expect(ret.err).toEqual({ kind: "alias", mode: "unrestricted", name: "SessionError", members: ["SmtpError", "IoError"] });
+      expect(ret.err).toEqual({
+        kind: "alias",
+        mode: "unrestricted",
+        name: "SessionError",
+        members: ["SmtpError", "IoError"],
+      });
     }
   });
 });
@@ -398,8 +498,8 @@ describe("buildTypeEnv — edge cases", () => {
 
   it("registers zero-param function with empty params array", () => {
     const prog = parse("fn noop() -> ()", "test.fit");
-    const env  = buildTypeEnv(prog);
-    const sig  = env.functions.get("noop");
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("noop");
     expect(sig).toBeDefined();
     expect(sig!.params).toHaveLength(0);
     expect(sig!.returnType).toEqual({ kind: "unit", mode: "unrestricted" });
@@ -407,9 +507,12 @@ describe("buildTypeEnv — edge cases", () => {
 
   it("registers resource with fallback cleanup correctly", () => {
     const prog = parse("resource R { f: X, cleanup: fallback force_close }", "test.fit");
-    const env  = buildTypeEnv(prog);
+    const env = buildTypeEnv(prog);
     expect(env.resources.get("R")).toEqual({
-      name: "R", typeParam: null, cleanup: "force_close", fallback: true,
+      name: "R",
+      typeParam: null,
+      cleanup: "force_close",
+      fallback: true,
     });
   });
 
@@ -417,8 +520,8 @@ describe("buildTypeEnv — edge cases", () => {
     // records are not in the resources map — the checker handles transitively-linear
     // records in Step 3; here they correctly resolve as plain unrestricted.
     const prog = parse("record Pt { x: Int } fn origin() -> Pt", "test.fit");
-    const env  = buildTypeEnv(prog);
-    const sig  = env.functions.get("origin");
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("origin");
     expect(sig).toBeDefined();
     expect(sig!.returnType).toEqual({ kind: "plain", mode: "unrestricted", name: "Pt" });
   });
@@ -435,10 +538,7 @@ describe("buildTypeEnv — edge cases", () => {
   });
 
   it("duplicate fn name — second decl silently overwrites first", () => {
-    const prog = parse(
-      "fn greet() -> () fn greet(x: Int) -> ()",
-      "test.fit"
-    );
+    const prog = parse("fn greet() -> () fn greet(x: Int) -> ()", "test.fit");
     const env = buildTypeEnv(prog);
     const sig = env.functions.get("greet");
     expect(sig).toBeDefined();
@@ -447,13 +547,17 @@ describe("buildTypeEnv — edge cases", () => {
 
   it("zero-param function with resource return type", () => {
     const prog = parse("resource Conn { sock: X, cleanup: close } fn create() -> Conn", "test.fit");
-    const env  = buildTypeEnv(prog);
-    const sig  = env.functions.get("create");
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("create");
     expect(sig).toBeDefined();
     expect(sig!.params).toHaveLength(0);
     expect(sig!.returnType).toEqual({
-      kind: "resource", mode: "linear", name: "Conn",
-      typeState: null, cleanup: "close", fallback: false,
+      kind: "resource",
+      mode: "linear",
+      name: "Conn",
+      typeState: null,
+      cleanup: "close",
+      fallback: false,
     });
   });
 
@@ -461,8 +565,8 @@ describe("buildTypeEnv — edge cases", () => {
     // Non-named param types produce baseName="" in buildTypeEnv.
     // inferParamMode("", ...) always returns "lend" since "" matches no type name.
     const prog = parse("fn unwrap(r: Result<A, B>) -> ()", "test.fit");
-    const env  = buildTypeEnv(prog);
-    const sig  = env.functions.get("unwrap");
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("unwrap");
     expect(sig).toBeDefined();
     expect(sig!.params[0]).toMatchObject({ name: "r", mode: "lend" });
   });
@@ -483,10 +587,14 @@ describe("buildTypeEnv — edge cases", () => {
   it("fn with plain (undeclared) return type resolves to plain unrestricted in FunctionSig", () => {
     // Ensures buildTypeEnv.returnType goes through resolveType, not raw AST passthrough.
     const prog = parse("fn describe(x: Int) -> SomeUndeclaredType", "test.fit");
-    const env  = buildTypeEnv(prog);
-    const sig  = env.functions.get("describe");
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("describe");
     expect(sig).toBeDefined();
-    expect(sig!.returnType).toEqual({ kind: "plain", mode: "unrestricted", name: "SomeUndeclaredType" });
+    expect(sig!.returnType).toEqual({
+      kind: "plain",
+      mode: "unrestricted",
+      name: "SomeUndeclaredType",
+    });
   });
 
   it("alias name collision with resource name — resource takes precedence", () => {
@@ -506,8 +614,8 @@ describe("buildTypeEnv — edge cases", () => {
     // buildTypeEnv defers capability validation to Step 4 (capability checker).
     // An undeclared cap name passes through without error.
     const prog = parse("fn sensitive() using UndeclaredCap -> ()", "test.fit");
-    const env  = buildTypeEnv(prog);
-    const sig  = env.functions.get("sensitive");
+    const env = buildTypeEnv(prog);
+    const sig = env.functions.get("sensitive");
     expect(sig).toBeDefined();
     expect(sig!.caps).toEqual(["UndeclaredCap"]);
   });
