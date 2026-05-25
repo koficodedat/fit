@@ -1,0 +1,11 @@
+resource Token {
+    id: TokenId,
+    cleanup: revoke_token,
+}
+
+fn consume_token(t: Token) -> Token
+
+fn test(t: Token) -> () {
+    consume_token(t)
+    consume_token(t)
+}

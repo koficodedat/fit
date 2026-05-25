@@ -1,0 +1,15 @@
+enum ConnState { Ready, Closing }
+
+resource Conn<S> {
+    sock: Socket,
+    cleanup: force_close,
+}
+
+fn transition(c: Conn<Ready>) -> Conn<Closing>
+
+fn test(c: Conn<Ready>) -> () {
+    loop {
+        let c = transition(c)
+        break
+    }
+}

@@ -1,0 +1,7 @@
+capability ChargeCard
+
+fn charge(amount: Cents) using ChargeCard -> Receipt
+
+fn pay(amount: Cents) -> Receipt {
+    charge(amount)
+}

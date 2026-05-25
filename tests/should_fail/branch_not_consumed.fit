@@ -1,0 +1,22 @@
+resource Token {
+    id: TokenId,
+    cleanup: revoke_token,
+}
+
+fn make_token() -> Token
+fn use_token(t: Token) -> Token
+
+enum Choice { Left, Right }
+
+fn get_choice() -> Choice
+
+fn test() -> () {
+    let t = make_token()
+    match get_choice() {
+        Left => {
+            let t2 = use_token(t)
+            drop(t2)
+        },
+        Right => {},
+    }
+}

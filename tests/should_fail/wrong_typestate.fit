@@ -1,0 +1,13 @@
+enum ConnState { Fresh, Ready }
+
+resource Conn<S> {
+    sock: Socket,
+    cleanup: force_close,
+}
+
+fn get_data() -> String
+fn send_data(c: Conn<Ready>, data: String) -> ()
+
+fn test(c: Conn<Fresh>) -> () {
+    send_data(c, get_data())
+}
