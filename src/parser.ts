@@ -125,24 +125,98 @@ class Parser {
     }
   }
 
-  private parseRecord(_pos: Pos): Decl {
-    throw new Error("TODO");
+  private parseCapability(pos: Pos): Decl {
+    const name = this.ident();
+    return { kind: "capability", name, pos };
   }
 
-  private parseEnum(_pos: Pos): Decl {
-    throw new Error("TODO");
+  private parseRecord(pos: Pos): Decl {
+    const name = this.ident();
+    this.expect("{");
+    const fields: FieldDef[] = [];
+    this.skip();
+    while (this.peek() !== "}") {
+      const fname = this.ident();
+      this.expect(":");
+      const type_ = this.parseType();
+      fields.push({ name: fname, type_ });
+      this.skip();
+      if (this.peek() === ",") { this.advance(); this.skip(); }
+    }
+    this.expect("}");
+    return { kind: "record", name, fields, pos };
   }
 
-  private parseResource(_pos: Pos): Decl {
-    throw new Error("TODO");
+  private parseEnum(pos: Pos): Decl {
+    const name = this.ident();
+    this.expect("{");
+    const variants: VariantDef[] = [];
+    this.skip();
+    while (this.peek() !== "}") {
+      const vname = this.ident();
+      this.skip();
+      let payload: Type | null = null;
+      if (this.peek() === "(") {
+        this.advance(); // consume (
+        payload = this.parseType();
+        this.expect(")");
+      }
+      variants.push({ name: vname, payload });
+      this.skip();
+      if (this.peek() === ",") { this.advance(); this.skip(); }
+    }
+    this.expect("}");
+    return { kind: "enum", name, variants, pos };
   }
 
-  private parseTypeAlias(_pos: Pos): Decl {
-    throw new Error("TODO");
+  private parseTypeAlias(pos: Pos): Decl {
+    const name = this.ident();
+    this.expect("=");
+    const members: string[] = [];
+    members.push(this.ident());
+    this.skip();
+    while (this.peek() === "|") {
+      this.advance(); // consume |
+      members.push(this.ident());
+      this.skip();
+    }
+    return { kind: "type_alias", name, members, pos };
   }
 
-  private parseCapability(_pos: Pos): Decl {
-    throw new Error("TODO");
+  private parseResource(pos: Pos): Decl {
+    const name = this.ident();
+    this.skip();
+    let typeParam: string | null = null;
+    if (this.peek() === "<") {
+      this.advance(); // consume <
+      typeParam = this.ident();
+      this.expect(">");
+    }
+    this.expect("{");
+    const fields: FieldDef[] = [];
+    let cleanup: CleanupDef | null = null;
+    this.skip();
+    while (this.peek() !== "}") {
+      const fname = this.ident();
+      this.expect(":");
+      this.skip();
+      if (fname === "cleanup") {
+        const kw = this.ident();
+        if (kw === "fallback") {
+          cleanup = { fallback: true, fn: this.ident() };
+        } else {
+          cleanup = { fallback: false, fn: kw };
+        }
+      } else {
+        const type_ = this.parseType();
+        fields.push({ name: fname, type_ });
+      }
+      this.skip();
+      if (this.peek() === ",") { this.advance(); this.skip(); }
+    }
+    this.expect("}");
+    if (!cleanup) this.err(`resource '${name}' missing cleanup field`);
+    return { kind: "resource", name, typeParam, fields, cleanup: cleanup as CleanupDef, pos };
   }
 
   private parseFn(_pos: Pos): Decl {
@@ -150,7 +224,33 @@ class Parser {
   }
 
   private parseType(): Type {
-    throw new Error("TODO");
+    this.skip();
+    if (this.peek() === "(") {
+      // unit type ()
+      this.advance();
+      this.expect(")");
+      return { kind: "unit" };
+    }
+    // read type name
+    const name = this.ident();
+    if (name === "Result") {
+      this.expect("<");
+      const ok = this.parseType();
+      this.expect(",");
+      const err = this.parseType();
+      this.skip();
+      this.expect(">");
+      return { kind: "result", ok, err };
+    }
+    this.skip();
+    let typeArg: Type | null = null;
+    if (this.peek() === "<") {
+      this.advance();
+      typeArg = this.parseType();
+      this.skip();
+      this.expect(">");
+    }
+    return { kind: "named", name, typeArg };
   }
 
   private parseBlock(): Stmt[] {

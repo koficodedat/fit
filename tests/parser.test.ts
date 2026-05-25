@@ -20,3 +20,97 @@ test("parse skips block comments", () => {
   const prog = parse("/* block\n   comment */", "block.fit");
   expect(prog.decls).toHaveLength(0);
 });
+
+test("parse capability decl", () => {
+  const prog = parse("capability ChargeCard", "t.fit");
+  expect(prog.decls).toHaveLength(1);
+  const d = prog.decls[0];
+  expect(d.kind).toBe("capability");
+  if (d.kind === "capability") expect(d.name).toBe("ChargeCard");
+});
+
+test("parse record decl", () => {
+  const prog = parse(`record Point {\n    x: Int,\n    y: Int,\n}`, "t.fit");
+  expect(prog.decls).toHaveLength(1);
+  const d = prog.decls[0];
+  expect(d.kind).toBe("record");
+  if (d.kind === "record") {
+    expect(d.name).toBe("Point");
+    expect(d.fields).toHaveLength(2);
+    expect(d.fields[0].name).toBe("x");
+    expect(d.fields[0].type_).toEqual({ kind: "named", name: "Int", typeArg: null });
+  }
+});
+
+test("parse enum unit variants", () => {
+  const prog = parse("enum Direction { North, East, South, West }", "t.fit");
+  const d = prog.decls[0];
+  expect(d.kind).toBe("enum");
+  if (d.kind === "enum") {
+    expect(d.variants).toHaveLength(4);
+    expect(d.variants[0]).toEqual({ name: "North", payload: null });
+    expect(d.variants[3]).toEqual({ name: "West", payload: null });
+  }
+});
+
+test("parse enum variants with payload", () => {
+  const prog = parse(
+    `enum ConnEvent {\n    Data(Bytes),\n    Error(String),\n    Closed,\n}`,
+    "t.fit"
+  );
+  const d = prog.decls[0];
+  expect(d.kind).toBe("enum");
+  if (d.kind === "enum") {
+    expect(d.variants[0]).toEqual({ name: "Data",  payload: { kind: "named", name: "Bytes",  typeArg: null } });
+    expect(d.variants[1]).toEqual({ name: "Error", payload: { kind: "named", name: "String", typeArg: null } });
+    expect(d.variants[2]).toEqual({ name: "Closed", payload: null });
+  }
+});
+
+test("parse type alias", () => {
+  const prog = parse("type SessionError = SmtpError | IoError", "t.fit");
+  const d = prog.decls[0];
+  expect(d.kind).toBe("type_alias");
+  if (d.kind === "type_alias") {
+    expect(d.name).toBe("SessionError");
+    expect(d.members).toEqual(["SmtpError", "IoError"]);
+  }
+});
+
+test("parse resource without typestate", () => {
+  const prog = parse(
+    `resource File {\n    handle: FileHandle,\n    cleanup: force_close,\n}`,
+    "t.fit"
+  );
+  const d = prog.decls[0];
+  expect(d.kind).toBe("resource");
+  if (d.kind === "resource") {
+    expect(d.name).toBe("File");
+    expect(d.typeParam).toBeNull();
+    expect(d.cleanup).toEqual({ fallback: false, fn: "force_close" });
+  }
+});
+
+test("parse resource with typestate param", () => {
+  const prog = parse(
+    `resource Conn<S> {\n    sock: TcpSocket,\n    cleanup: tcp_force_close,\n}`,
+    "t.fit"
+  );
+  const d = prog.decls[0];
+  expect(d.kind).toBe("resource");
+  if (d.kind === "resource") {
+    expect(d.name).toBe("Conn");
+    expect(d.typeParam).toBe("S");
+  }
+});
+
+test("parse resource with fallback cleanup", () => {
+  const prog = parse(
+    `resource TxConn<S> {\n    sock: TcpSocket,\n    cleanup: fallback tcp_force_close,\n}`,
+    "t.fit"
+  );
+  const d = prog.decls[0];
+  if (d.kind === "resource") {
+    expect(d.cleanup).toEqual({ fallback: true, fn: "tcp_force_close" });
+  }
+});
