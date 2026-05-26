@@ -146,21 +146,30 @@ The PoC is complete when:
 4. The two canonical programs are readable by a non-programmer — print them formatted
    for the reader study (PoC question 2).
 
-### PoC status: COMPLETE (2026-05-25)
+### PoC status: COMPLETE — post-remediation (2026-05-25)
 
 | Criterion | Result |
 |-----------|--------|
-| 1. Canonical programs | ✅ Both pass — 0 errors |
-| 2. `should_fail` suite | ✅ 8 cases, all produce correct located errors |
-| 3. Line count | ✅ parser: 501 lines · checker: 301 lines · **total: 802** |
-| 4. Reader study | ✅ `docs/reader-study.md` — two programs + 12 comprehension questions |
+| 1. Canonical programs | ✅ All three pass — 0 errors (`payment.fit`, `smtp.fit`, `drain.fit`) |
+| 2. `should_fail` suite | ✅ 9 cases, all produce correct located errors |
+| 3. Line count | ✅ parser: 544 · checker: 336 · types: 290 · ast: 56 · **total: 1226** |
+| 4. Reader study | ⚠️ `docs/reader-study.md` written — study not yet conducted |
 
-**Line count note (criterion 3):** FIT's 802 lines is ~34% above Austral's ~600-line reference.
-The gap is TypeScript vs. OCaml verbosity for this class of code, not semantic bloat.
-`checker.ts` at 301 lines is competitive with Austral's equivalent semantic work.
+**Line count note (criterion 3):** The 2× gap vs Austral (~600 lines, OCaml) measures
+TypeScript vs. OCaml language verbosity, not semantic complexity. The semantic work in
+`checker.ts` (336 lines) is directly comparable to Austral's equivalent. `types.ts` (290
+lines) implements the two-pass type environment construction and body-scan inference.
 See `docs/poc-findings.md` for the full assessment.
 
-**Test suite:** 251 tests across 6 suites (unit, integration, edge cases, should_pass/should_fail).
+**Test suite:** 258 tests across 6 suites (unit, integration, edge cases, should_pass/should_fail).
+
+**Post-remediation changes (2026-05-25):**
+- Replaced return-type name-matching heuristic with body-based move inference (spec §4)
+- Added explicit `move`/`lend` annotations to all extern resource params across all `.fit` files
+- Added `drain.fit` (third canonical program) + `drain_loop.fit` (should_fail, loop-typestate)
+- Added `BuildError` for extern resource params missing annotation
+- Corrected Q1/Q2/Q3 findings in `docs/poc-findings.md`
+- Added §4 extern annotation rule to `docs/FIT-SPEC-v2.md`
 
 ---
 
