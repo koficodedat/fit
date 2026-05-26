@@ -49,7 +49,7 @@ export type Expr =
   | { kind: "unit_val"; pos: Pos };
 
 export type FieldDef = { name: string; type_: Type };
-export type ParamDef = { name: string; type_: Type };
+export type ParamDef = { name: string; type_: Type; annotatedMode: "move" | "lend" | null };
 export type CleanupDef = { fallback: boolean; fn: string };
 export type VariantDef = { name: string; payload: Type | null };
 export type MatchArm = { pattern: Pattern; body: Stmt[] };
