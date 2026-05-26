@@ -8,16 +8,16 @@ resource SmtpConn<S> {
 enum SmtpError  { ConnRefused, AuthFailed, MailRejected }
 type SessionError = SmtpError | IoError
 
-fn connect(host: String)          using Net -> Result<SmtpConn<Fresh>,   SessionError>
-fn greet  (c: SmtpConn<Fresh>)    using Net -> Result<SmtpConn<Greeted>, SessionError>
-fn auth   (c: SmtpConn<Greeted>,
-           creds: Credentials)    using Net -> Result<SmtpConn<Authed>,  SessionError>
-fn ready  (c: SmtpConn<Authed>)   using Net -> Result<SmtpConn<Ready>,   SessionError>
-fn quit   (c: SmtpConn<Ready>)    using Net -> Result<SmtpConn<Closing>, SessionError>
-fn close  (c: SmtpConn<Closing>)  using Net -> Result<(), SessionError>
+fn connect(host: String)                using Net -> Result<SmtpConn<Fresh>,   SessionError>
+fn greet  (c: move SmtpConn<Fresh>)    using Net -> Result<SmtpConn<Greeted>, SessionError>
+fn auth   (c: move SmtpConn<Greeted>,
+           creds: Credentials)          using Net -> Result<SmtpConn<Authed>,  SessionError>
+fn ready  (c: move SmtpConn<Authed>)   using Net -> Result<SmtpConn<Ready>,   SessionError>
+fn quit   (c: move SmtpConn<Ready>)    using Net -> Result<SmtpConn<Closing>, SessionError>
+fn close  (c: move SmtpConn<Closing>)  using Net -> Result<(), SessionError>
 
-// Lend: SmtpConn<Ready> not in return type — caller retains ownership
-fn send_message(c: SmtpConn<Ready>, msg: Message) using Net
+// Lend: caller retains ownership — SmtpConn<Ready> is borrowed, not consumed
+fn send_message(c: lend SmtpConn<Ready>, msg: Message) using Net
     -> Result<(), SessionError>
 
 // Plain loop: c stays Ready throughout — no state crossing, no recursion needed

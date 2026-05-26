@@ -8,9 +8,9 @@ resource Conn<S> {
 enum NetError { Refused, Timeout }
 
 fn connect(host: String) -> Result<Conn<Fresh>, NetError>
-fn handshake(c: Conn<Fresh>) -> Result<Conn<Ready>, NetError>
-fn send(c: Conn<Ready>, data: String) -> Result<(), NetError>
-fn close(c: Conn<Ready>) -> ()
+fn handshake(c: move Conn<Fresh>) -> Result<Conn<Ready>, NetError>
+fn send(c: lend Conn<Ready>, data: String) -> Result<(), NetError>
+fn close(c: move Conn<Ready>) -> ()
 
 fn run(host: String, data: String) -> Result<(), NetError> {
     let c = connect(host)?

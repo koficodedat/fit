@@ -4,7 +4,7 @@ resource Token {
 }
 
 fn make_token() -> Token
-fn use_token(t: Token) -> Token
+fn use_token(t: move Token) -> Token
 
 enum Choice { Left, Right }
 

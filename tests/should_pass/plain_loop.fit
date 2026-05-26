@@ -5,7 +5,7 @@ resource Conn<S> {
     cleanup: force_close,
 }
 
-fn send_msg(c: Conn<Ready>, msg: String) -> ()
+fn send_msg(c: lend Conn<Ready>, msg: String) -> ()
 fn get_msg() -> String
 fn should_stop() -> String
 

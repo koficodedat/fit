@@ -10,7 +10,7 @@ enum PaymentError { Declined, NetworkFail, InvalidCard, AlreadyCharged }
 fn validate_card(card: CardDetails) using Net
     -> Result<AuthToken, PaymentError>
 
-fn execute_charge(token: AuthToken, amount: Cents) using Net, ChargeCard
+fn execute_charge(token: move AuthToken, amount: Cents) using Net, ChargeCard
     -> Result<Receipt, PaymentError>
 
 fn audit_log(receipt: Receipt) using Net

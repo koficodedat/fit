@@ -6,7 +6,7 @@ resource Conn<S> {
 }
 
 fn get_data() -> String
-fn send_data(c: Conn<Ready>, data: String) -> ()
+fn send_data(c: lend Conn<Ready>, data: String) -> ()
 
 fn test(c: Conn<Fresh>) -> () {
     send_data(c, get_data())

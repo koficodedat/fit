@@ -71,7 +71,7 @@ describe("variable usage and move tracking", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn take_foo(f: Foo) -> ()
+      fn take_foo(f: move Foo) -> ()
       fn test() -> () {
         let f = make_foo()
         take_foo(f)
@@ -114,7 +114,7 @@ describe("function calls", () => {
     // send_message lends c (SmtpConn<Ready> not in return type)
     const src = `
       resource SmtpConn<S> { cleanup: tcp_force_close }
-      fn send_message(c: SmtpConn<Ready>, msg: String) -> Result<(), String>
+      fn send_message(c: lend SmtpConn<Ready>, msg: String) -> Result<(), String>
       fn test(c: SmtpConn<Ready>) -> () {
         send_message(c, ())
         send_message(c, ())
@@ -128,7 +128,7 @@ describe("function calls", () => {
     const src = `
       resource Tok { cleanup: drop_tok }
       fn make_tok() -> Tok
-      fn take_tok(t: Tok) -> Tok
+      fn take_tok(t: move Tok) -> Tok
       fn test() -> () {
         let t = make_tok()
         take_tok(t)
@@ -142,7 +142,7 @@ describe("function calls", () => {
   it("call with wrong typestate produces an error", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn greet(c: Conn<Fresh>) -> Conn<Greeted>
+      fn greet(c: move Conn<Fresh>) -> Conn<Greeted>
       fn test(c: Conn<Greeted>) -> () {
         greet(c)
       }
@@ -156,7 +156,7 @@ describe("function calls", () => {
   it("call with correct typestate produces no error", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn greet(c: move Conn<Fresh>) -> Result<Conn<Greeted>, String>
       fn test(c: Conn<Fresh>) -> Result<Conn<Greeted>, String> {
         greet(c)
       }
@@ -168,7 +168,7 @@ describe("function calls", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn take_foo(f: Foo) -> ()
+      fn take_foo(f: move Foo) -> ()
       fn test() -> () {
         let f = make_foo()
         ext_fn(f)
@@ -193,13 +193,13 @@ describe("function calls", () => {
   });
 
   it("lend param cannot be consumed by a move call", () => {
-    // quit(c: Conn<Ready>) -> Conn<Closing>: Conn IS in return type → c's mode in quit is "move"
-    // test(c: Conn<Ready>) -> (): Conn NOT in return type → c in test is lend (owned=false)
+    // quit(c: move Conn<Ready>): consuming transition function
+    // test(c: lend Conn<Ready>): explicit lend annotation → owned=false
     // quit(c) inside test body: param.mode="move", c is owned=false → "cannot move borrowed value"
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn quit(c: Conn<Ready>) -> Conn<Closing>
-      fn test(c: Conn<Ready>) -> () {
+      fn quit(c: move Conn<Ready>) -> Conn<Closing>
+      fn test(c: lend Conn<Ready>) -> () {
         quit(c)
       }
     `;
@@ -235,7 +235,7 @@ describe("let, rebind, and try", () => {
   it("let-shadowing — old binding consumed before shadowing, new binding has updated typestate", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn greet(c: move Conn<Fresh>) -> Result<Conn<Greeted>, String>
       fn test(c: Conn<Fresh>) -> Result<Conn<Greeted>, String> {
         let c = greet(c)?
         Ok(c)
@@ -260,8 +260,8 @@ describe("let, rebind, and try", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
       fn connect() -> Result<Conn<Fresh>, String>
-      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
-      fn auth(c: Conn<Greeted>) -> Result<Conn<Ready>, String>
+      fn greet(c: move Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn auth(c: move Conn<Greeted>) -> Result<Conn<Ready>, String>
       fn test() -> Result<Conn<Ready>, String> {
         let c = connect()?
         let c = greet(c)?
@@ -287,8 +287,8 @@ describe("let, rebind, and try", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
       fn connect() -> Result<Conn<Fresh>, String>
-      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
-      fn auth(c: Conn<Greeted>) -> Result<Conn<Authed>, String>
+      fn greet(c: move Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn auth(c: move Conn<Greeted>) -> Result<Conn<Authed>, String>
       fn test() -> Result<Conn<Authed>, String> {
         let c = connect()?
         let c = greet(c)?
@@ -305,7 +305,7 @@ describe("branch exhaustiveness", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn use_foo(f: Foo) -> Foo
+      fn use_foo(f: move Foo) -> Foo
       fn cond() -> String
       fn test() -> () {
         let f = make_foo()
@@ -323,7 +323,7 @@ describe("branch exhaustiveness", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn use_foo(f: Foo) -> Foo
+      fn use_foo(f: move Foo) -> Foo
       fn cond() -> String
       fn test() -> () {
         let f = make_foo()
@@ -358,7 +358,7 @@ describe("branch exhaustiveness", () => {
       resource Foo { cleanup: drop_foo }
       enum Choice { A, B }
       fn make_foo() -> Foo
-      fn use_foo(f: Foo) -> Foo
+      fn use_foo(f: move Foo) -> Foo
       fn get_choice() -> Choice
       fn test() -> () {
         let f = make_foo()
@@ -376,7 +376,7 @@ describe("branch exhaustiveness", () => {
       resource Foo { cleanup: drop_foo }
       enum Choice { A, B }
       fn make_foo() -> Foo
-      fn use_foo(f: Foo) -> Foo
+      fn use_foo(f: move Foo) -> Foo
       fn get_choice() -> Choice
       fn test() -> () {
         let f = make_foo()
@@ -410,7 +410,7 @@ describe("loop typestate invariant", () => {
   it("plain loop with no typestate change — no error", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn send(c: Conn<Ready>, msg: String) -> Result<(), String>
+      fn send(c: lend Conn<Ready>, msg: String) -> Result<(), String>
       fn next_msg(x: String) -> String
       fn deliver(c: Conn<Ready>) -> () {
         loop {
@@ -425,7 +425,7 @@ describe("loop typestate invariant", () => {
   it("loop that changes typestate — error with correct message format", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn greet(c: move Conn<Fresh>) -> Result<Conn<Greeted>, String>
       fn bad_loop(c: Conn<Fresh>) -> () {
         loop {
           let c = greet(c)?
@@ -441,7 +441,7 @@ describe("loop typestate invariant", () => {
   it("loop typestate error message names the binding and both states", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn greet(c: Conn<Fresh>) -> Result<Conn<Greeted>, String>
+      fn greet(c: move Conn<Fresh>) -> Result<Conn<Greeted>, String>
       fn bad_loop(c: Conn<Fresh>) -> () {
         loop {
           let c = greet(c)?
@@ -505,7 +505,7 @@ describe("stress tests — gaps and edge cases", () => {
     const src = `
       resource Tok { cleanup: drop_tok }
       fn make_tok() -> Tok
-      fn take_tok(t: Tok) -> Tok
+      fn take_tok(t: move Tok) -> Tok
       fn test() -> Result<Tok, String> {
         let t = make_tok()
         let result = Ok(t)
@@ -522,7 +522,7 @@ describe("stress tests — gaps and edge cases", () => {
     const src = `
       resource Tok { cleanup: drop_tok }
       fn make_tok() -> Tok
-      fn take_tok(t: Tok) -> Tok
+      fn take_tok(t: move Tok) -> Tok
       fn test() -> Result<String, Tok> {
         let t = make_tok()
         Err(t)
@@ -551,8 +551,8 @@ describe("stress tests — gaps and edge cases", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn take_foo(f: Foo) -> Foo
-      fn lend_foo(f: Foo) -> ()
+      fn take_foo(f: move Foo) -> Foo
+      fn lend_foo(f: lend Foo) -> ()
       fn test() -> () {
         let f = make_foo()
         take_foo(f)
@@ -569,7 +569,7 @@ describe("stress tests — gaps and edge cases", () => {
   it("passing Conn<Fresh> to a function expecting Conn<Ready> — typestate error", () => {
     const src = `
       resource Conn<S> { cleanup: drop_conn }
-      fn send(c: Conn<Ready>, msg: String) -> Result<(), String>
+      fn send(c: lend Conn<Ready>, msg: String) -> Result<(), String>
       fn test(c: Conn<Fresh>) -> () {
         send(c, ())
       }
@@ -612,7 +612,7 @@ describe("stress tests — gaps and edge cases", () => {
       resource Foo { cleanup: drop_foo }
       enum Choice { A, B }
       fn make_foo() -> Foo
-      fn use_foo(f: Foo) -> Foo
+      fn use_foo(f: move Foo) -> Foo
       fn get_choice() -> Choice
       fn test() -> () {
         let f = make_foo()
@@ -636,11 +636,11 @@ describe("stress tests — gaps and edge cases", () => {
   it("drop() on a lend param produces cannot-move-borrowed error", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
-      fn test(f: Foo) -> () {
+      fn test(f: lend Foo) -> () {
         drop(f)
       }
     `;
-    // test(f: Foo) -> () — Foo not in return type → f is lend (owned=false)
+    // test(f: lend Foo) — explicit lend annotation → owned=false
     // drop(f) calls consumeBinding("f") → owned=false → "cannot move borrowed value"
     const errors = check(parse(src, "test.fit"));
     expect(errors.some((e) => e.message.includes("borrowed"))).toBe(true);
@@ -651,7 +651,7 @@ describe("stress tests — gaps and edge cases", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn take_foo(f: Foo) -> Foo
+      fn take_foo(f: move Foo) -> Foo
       fn test() -> () {
         let a = make_foo()
         let b = make_foo()
@@ -669,8 +669,8 @@ describe("stress tests — gaps and edge cases", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn take_foo(f: Foo) -> Foo
-      fn lend_foo(f: Foo) -> ()
+      fn take_foo(f: move Foo) -> Foo
+      fn lend_foo(f: lend Foo) -> ()
       fn cond() -> String
       fn test() -> () {
         let f = make_foo()
@@ -819,7 +819,7 @@ describe("select statement", () => {
       resource AuthToken { token_id: TokenId, cleanup: void_token }
       enum PaymentError { Declined, NetworkFail, InvalidCard, AlreadyCharged }
       fn validate_card(card: CardDetails) using Net -> Result<AuthToken, PaymentError>
-      fn execute_charge(token: AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>
+      fn execute_charge(token: move AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>
       fn audit_log(receipt: Receipt) using Net -> Result<(), PaymentError>
       fn process_payment(card: CardDetails, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError> {
         let token   = validate_card(card)?
@@ -916,7 +916,7 @@ describe("capability checker gap coverage", () => {
       capability ChargeCard
       resource AuthToken { token_id: TokenId, cleanup: void_token }
       enum PaymentError { Declined }
-      fn execute_charge(token: AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>
+      fn execute_charge(token: move AuthToken, amount: Cents) using Net, ChargeCard -> Result<Receipt, PaymentError>
       fn process_payment(card: CardDetails, amount: Cents) using Net -> Result<Receipt, PaymentError> {
         let token = validate_card(card)?
         let receipt = execute_charge(token, amount)?
@@ -969,7 +969,7 @@ describe("holistic gap coverage", () => {
     const src = `
       resource Tok { id: TokId, cleanup: revoke_tok }
       fn make_tok() -> Tok
-      fn take_tok(t: Tok) -> Tok
+      fn take_tok(t: move Tok) -> Tok
       fn test() -> () {
         let t = make_tok()
         take_tok(t)
@@ -1003,7 +1003,7 @@ describe("holistic gap coverage", () => {
     const src = `
       enum State { Fresh, Ready }
       resource Conn<S> { sock: Socket, cleanup: force_close }
-      fn ready_op(c: Conn<Ready>) using Net -> ()
+      fn ready_op(c: lend Conn<Ready>) using Net -> ()
       fn test(c: Conn<Fresh>) -> () {
         ready_op(c)
       }
@@ -1072,7 +1072,7 @@ describe("holistic gap coverage", () => {
   it("function with linear param consumed by move call — returns normally with no error", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
-      fn consume_foo(f: Foo) -> Foo
+      fn consume_foo(f: move Foo) -> Foo
       fn test(f: Foo) -> Foo {
         consume_foo(f)
       }
@@ -1135,7 +1135,7 @@ describe("stress test gap coverage", () => {
     const src = `
       resource Tok { id: TokId, cleanup: revoke_tok }
       fn make_tok() -> Tok
-      fn consume_tok(t: Tok) -> Tok
+      fn consume_tok(t: move Tok) -> Tok
       fn test() -> () {
         let t = make_tok()
         consume_tok(t)
@@ -1174,7 +1174,7 @@ describe("stress test gap coverage", () => {
     const src = `
       resource Tok { id: TokId, cleanup: revoke_tok }
       fn make_tok() -> Tok
-      fn use_tok(t: Tok) -> ()
+      fn use_tok(t: move Tok) -> ()
       fn test() -> () {
         let t = make_tok()
         let t2 = make_tok()
@@ -1203,7 +1203,7 @@ describe("stress test gap coverage", () => {
       enum S { Ready, Closing }
       resource Conn<S> { sock: Sock, cleanup: force_close }
       fn make_conn() -> Conn<Ready>
-      fn transition(c: Conn<Ready>) -> Conn<Closing>
+      fn transition(c: move Conn<Ready>) -> Conn<Closing>
       fn test() -> () {
         let c = make_conn()
         loop {
@@ -1236,7 +1236,7 @@ describe("edge cases", () => {
     // run_loop lends c (SmtpConn not in return type), so the recursive call is valid.
     const src = `
       resource SmtpConn<S> { sock: Socket, cleanup: force_close }
-      fn send_msg(c: SmtpConn<Ready>, msg: String) -> ()
+      fn send_msg(c: lend SmtpConn<Ready>, msg: String) -> ()
       fn run_loop(c: SmtpConn<Ready>, msg: String) -> () {
         send_msg(c, msg)
         run_loop(c, msg)
@@ -1282,7 +1282,7 @@ describe("edge cases", () => {
     const src = `
       resource Handle { sock: Socket, cleanup: close_handle }
       fn make_handle() -> Handle
-      fn consume_handle(h: Handle) -> Handle
+      fn consume_handle(h: move Handle) -> Handle
       fn test() -> () {
         let h = make_handle()
         consume_handle(h)

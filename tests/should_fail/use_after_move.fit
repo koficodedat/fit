@@ -4,7 +4,7 @@ resource Token {
 }
 
 fn make_token() -> Token
-fn consume_token(t: Token) -> Token
+fn consume_token(t: move Token) -> Token
 
 fn test() -> () {
     let t = make_token()

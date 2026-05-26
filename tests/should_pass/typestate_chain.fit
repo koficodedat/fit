@@ -8,9 +8,9 @@ resource Session<S> {
 enum SessionError { Timeout, AuthFailed }
 
 fn start_session() -> Result<Session<Init>, SessionError>
-fn activate(s: Session<Init>) -> Result<Session<Active>, SessionError>
-fn deactivate(s: Session<Active>) -> Result<Session<Closing>, SessionError>
-fn end_session(s: Session<Closing>) -> Result<(), SessionError>
+fn activate(s: move Session<Init>) -> Result<Session<Active>, SessionError>
+fn deactivate(s: move Session<Active>) -> Result<Session<Closing>, SessionError>
+fn end_session(s: move Session<Closing>) -> Result<(), SessionError>
 
 fn run_session() -> Result<(), SessionError> {
     let s = start_session()?

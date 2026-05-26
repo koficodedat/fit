@@ -6,7 +6,7 @@ resource Conn<S> {
 }
 
 fn make_conn() -> Conn<Ready>
-fn transition(c: Conn<Ready>) -> Conn<Closing>
+fn transition(c: move Conn<Ready>) -> Conn<Closing>
 
 fn test() -> () {
     let c = make_conn()
