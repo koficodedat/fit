@@ -1,0 +1,16 @@
+resource Widget {
+    id:      WidgetId,
+    cleanup: free_widget,
+}
+
+enum E { Failed }
+
+fn make_widget() -> Widget
+fn risky() -> Result<(), E>
+
+fn run() -> Result<(), E> {
+    let w = make_widget()
+    risky()?
+    drop(w)
+    Ok(())
+}

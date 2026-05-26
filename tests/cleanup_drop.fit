@@ -1,0 +1,13 @@
+resource Widget {
+    id:      WidgetId,
+    cleanup: free_widget,
+}
+
+fn make_widget() -> Widget
+fn use_widget(w: lend Widget) -> ()
+
+fn run() -> () {
+    let w = make_widget()
+    use_widget(w)
+    drop(w)
+}
