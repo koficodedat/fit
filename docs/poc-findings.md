@@ -19,7 +19,32 @@ Three semantic properties are enforced:
 
 ## PoC question 1 — Is the checker small and clean?
 
-**Answer: Yes, but the line-count comparison requires honest framing.**
+**Answer: Partially measurable. The semantic-complexity metric is now produced; line count is reported only as a weak secondary signal.**
+
+### Semantic rules enforced — the language-independent measure
+
+The checker enforces **10 distinct semantic rules**. These are countable directly from the implementation and comparable to Austral regardless of implementation language.
+
+| # | Rule | Error produced |
+|---|------|----------------|
+| 1 | **Linear use-once** — a moved binding cannot be used again | `"value 'X' has already been moved"` |
+| 2 | **Cannot-move-borrowed** — a lend-mode binding (owned=false) cannot be passed to a move-mode callee or to `drop()` | `"cannot move borrowed value 'X'"` |
+| 3 | **Typestate-match-at-call** — the binding's current typestate must equal the parameter's declared typestate at the call site | `"argument 'X' has typestate 'A', expected 'B'"` |
+| 4 | **Loop-typestate-invariant** — a loop body cannot leave any live binding in a different typestate than it entered; use recursion for state-advancing sequences | `"loop body changes typestate of 'X' from 'A' to 'B'; use recursion instead"` |
+| 5 | **Branch-consumption-consistency** — a linear binding live at an if/match must be consumed on all branches or none | `"linear value 'X' must be consumed on all branches"` |
+| 6 | **Capability-presence-at-call** — every `using Cap` requirement of a callee must be present in the calling scope | `"missing capability 'Cap' required by 'fn'"` |
+| 7 | **Select-source-in-scope** — the source capability of a `select` statement must be in scope; if valid, the projected atom is added to the capability scope | `"capability 'Cap' not in scope for 'select'"` |
+| 8 | **Extern-annotation-required** — an extern with a linear resource parameter and no `move`/`lend` annotation is a compile error | `"extern 'fn' has linear parameter 'X' with no move/lend annotation"` |
+| 9 | **Move-skips-cleanup** — a binding consumed via move does not trigger cleanup at scope exit; cleanup fires only for still-owned linear values | *(accepted, no error)* |
+| 10 | **Lend-retains-ownership** — a lend-mode call does not mark the caller's binding as moved; the caller retains ownership and may continue using the binding after the call returns | *(accepted, no error)* |
+
+Rules 1–8 reject invalid programs with a located error. Rules 9–10 are positive acceptance rules — they describe what the checker correctly allows and are verified by the should_pass suite.
+
+### Pass structure and entanglement
+
+The checker runs in distinct phases: type-environment construction (two passes: resources/aliases then function signatures), followed by a single checking walk per function body. The three properties — linearity, typestate, capabilities — are checked without cross-dependency: linearity logic does not read capability state; capability logic does not read typestate; typestate logic does not read capability state. This orthogonality is the strongest positive Q1 signal and is verifiable from the code structure, independent of line count.
+
+### Line count — secondary, weak signal
 
 | Component | Lines |
 |-----------|-------|
@@ -27,14 +52,12 @@ Three semantic properties are enforced:
 | `src/checker.ts` | 336 |
 | `src/types.ts` | 290 |
 | `src/ast.ts` | 56 |
-| **Total (implementation surface)** | **1226** |
+| **Total** | **1226** |
 | Reference: Austral (OCaml) | ~600 |
 
-**What the gap measures:** TypeScript vs. OCaml language verbosity, not semantic complexity. OCaml's algebraic data types, native pattern matching, and structural brevity require a fraction of the boilerplate TypeScript needs for the same structure. The semantic *work* — scope tracking, typestate checking, capability checking, two-pass type environment construction — is directly comparable to Austral's equivalent. `checker.ts` at 336 lines performs that semantic work in clean, non-entangled phases.
+The 2× gap reflects TypeScript-vs-OCaml verbosity, not semantic complexity, and should not be read as a finding about FIT's design. It is reported for completeness. The rule count (10) and pass orthogonality are the language-independent measures.
 
-**What the gap does not measure:** semantic bloat, over-engineering, or scope creep. Every rule in the implementation corresponds to a rule in `FIT-SPEC-v2.md` or `FIT-SYNTAX.md`. No rule was invented to make a test pass.
-
-**Honest reading:** the 2× gap is the cost of implementing this class of checker in TypeScript versus OCaml. If FIT's implementation language were OCaml or Rust, the checker would likely land at or below Austral's reference. This is a tooling choice, not a language design finding.
+**Honest status:** the orthogonality result is real and positive. The 10-rule count is the actual Q1 deliverable. Q1 is answered: the checker is small (10 rules, 3 orthogonal properties) and clean (no invented rules, each corresponds to a spec entry).
 
 ---
 
@@ -82,6 +105,23 @@ Every error in the `should_fail` suite produces a message that names the binding
 ### Body-based inference works correctly
 
 Parameters are classified as `move` if the function body transfers the resource onward on any path (returned via Ok/Err, passed to a consuming callee, or passed to `drop()`). Externs (no body) carry explicit annotations. This is correct by construction rather than a name-matching heuristic.
+
+### No-sigil lending holds for FIT code; the FFI boundary requires explicit annotation
+
+Body-based inference means FIT code carries no `move`/`lend` sigils in most function signatures: the calling convention is inferred from the body and frozen in the function's published type. This is the intended design — "no written marker on every parameter" is one of FIT's four differentiators.
+
+The exception is the FFI boundary. Externs (body-less declarations for C/system functions) cannot be inferred from a body, so they carry explicit annotations: `fn close(c: move SmtpConn<Closing>) -> ()`. This is the correct design: externs are a deliberate boundary where explicit human annotation is required and trusted — comparable to Rust's `unsafe` blocks at the FFI surface.
+
+**PoC caveat:** `smtp.fit` looks annotation-heavy because the PoC stubs all protocol functions as externs. In a real implementation, protocol orchestration functions would have FIT bodies (inferred, no annotations); only the lowest-level FFI shims would carry annotations. The PoC cannot measure that ratio because it has no standard library.
+
+**Forward tension:** The no-sigil property holds for *bodied* signatures only. Body-less surface today is limited to externs. If traits or compile-time interfaces are added later, they would expand the body-less surface and require more annotations — annotation cost scales with body-less signature surface, not with the overall language. FIT has no dispatch (§1.2, §8), so this is not an immediate concern, but it is a constraint to carry forward.
+
+**Bearing on kill criterion 2:** The no-sigil differentiator survives for FIT code. The cost is bounded to the FFI boundary. Whether that cost is acceptable at real-world FFI surface area is unmeasured pending a standard library sketch.
+
+### Two open questions after the PoC
+
+1. **Readability** — the reader study instrument is written but no subjects have been tested. The readability claim remains a hypothesis. (See PoC question 2 above.)
+2. **FFI annotation cost at scale** — no-sigil lending is confirmed for FIT code; extern-annotation cost is bounded to the FFI boundary but real-world magnitude is unknown pending a standard library sketch.
 
 ### The three canonical programs cover the full semantic surface
 

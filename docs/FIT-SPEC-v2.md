@@ -338,6 +338,9 @@ Method-call *sugar* (`c.send(b)` desugaring to `send(c, b)`) is **deferred and o
 `union`, `using`, `select`, `cleanup`, `mut`, `linear`, `affine`, `import`, `drop`.
 (Rejected synonyms also reserved so a future programmer cannot claim a name we may need.)
 
+### Contextual keywords
+`move` and `lend` are **contextual keywords**: they are recognised only in the parameter-annotation position (`param: move Type`, `param: lend Type`) and remain valid identifiers in all other positions. They are not reserved. Tooling note (record, do not build): syntax highlighting must be position-aware to avoid false-positive keyword colouring on identifiers named `move` or `lend`.
+
 ---
 
 ## 10. The PoC charter — what we are actually testing
