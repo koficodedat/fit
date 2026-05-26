@@ -173,6 +173,20 @@ linear types that declare cleanup (§2.3). All three are reserved; rejected syno
     (`handshake(conn: Conn<Fresh>) -> Conn<Ready>`) consumes because it returns `conn` in a
     new state; and an ownership-into-aggregate call (`pool_add(pool, conn) -> Pool`) consumes
     `conn` because the body stores it into `pool`.
+- **[AMENDED] Extern annotation for linear parameters.** Functions without bodies (externs,
+  FFI declarations, abstract interfaces) cannot be inferred — the checker has no body to
+  inspect. For any extern function with a linear resource parameter, the programmer must
+  supply an explicit annotation between the colon and the type name:
+  ```
+  fn close(c: move SmtpConn<Closing>) -> Result<(), SessionError>
+  fn send_message(c: lend SmtpConn<Ready>, msg: Message) -> Result<(), SessionError>
+  ```
+  An extern with a linear resource parameter and no annotation is a **compile error**.
+  Non-linear parameters (plain types, aliases, records) never require annotation — the
+  move/lend distinction is meaningless for unrestricted types, and the compiler accepts or
+  ignores any annotation silently.
+  Body-inspection still applies to **bodied** functions: an explicit annotation on a bodied
+  function overrides inference; omitting it causes the compiler to infer from the body.
 - **[AMENDED] Frozen published signature.** Move-vs-lend is inferred once per function from
   its body and then **frozen as part of the function's published type**. A subsequent body
   change that would flip a parameter from lend to move is a compile error at the signature
