@@ -23,7 +23,7 @@ Three semantic properties are enforced:
 
 ### Semantic rules enforced — the language-independent measure
 
-The checker enforces **10 distinct semantic rules**. These are countable directly from the implementation and comparable to Austral regardless of implementation language.
+The checker **enforces 8 semantic rules**. These are countable directly from the implementation and comparable to Austral regardless of implementation language.
 
 | # | Rule | Error produced |
 |---|------|----------------|
@@ -35,10 +35,8 @@ The checker enforces **10 distinct semantic rules**. These are countable directl
 | 6 | **Capability-presence-at-call** — every `using Cap` requirement of a callee must be present in the calling scope | `"missing capability 'Cap' required by 'fn'"` |
 | 7 | **Select-source-in-scope** — the source capability of a `select` statement must be in scope; if valid, the projected atom is added to the capability scope | `"capability 'Cap' not in scope for 'select'"` |
 | 8 | **Extern-annotation-required** — an extern with a linear resource parameter and no `move`/`lend` annotation is a compile error | `"extern 'fn' has linear parameter 'X' with no move/lend annotation"` |
-| 9 | **Move-skips-cleanup** — a binding consumed via move does not trigger cleanup at scope exit; cleanup fires only for still-owned linear values | *(accepted, no error)* |
-| 10 | **Lend-retains-ownership** — a lend-mode call does not mark the caller's binding as moved; the caller retains ownership and may continue using the binding after the call returns | *(accepted, no error)* |
 
-Rules 1–8 reject invalid programs with a located error. Rules 9–10 are positive acceptance rules — they describe what the checker correctly allows and are verified by the should_pass suite.
+Two further properties — move-skips-cleanup and lend-retains-ownership — are **assumed, not statically verified**: the checker tracks ownership (who holds what, when it is moved) but defers cleanup firing to a future runtime. These properties are correctly out of scope for a static checker, but they must not be counted as enforced rules.
 
 ### Pass structure and entanglement
 
@@ -57,7 +55,7 @@ The checker runs in distinct phases: type-environment construction (two passes: 
 
 The 2× gap reflects TypeScript-vs-OCaml verbosity, not semantic complexity, and should not be read as a finding about FIT's design. It is reported for completeness. The rule count (10) and pass orthogonality are the language-independent measures.
 
-**Honest status:** the orthogonality result is real and positive. The 10-rule count is the actual Q1 deliverable. Q1 is answered: the checker is small (10 rules, 3 orthogonal properties) and clean (no invented rules, each corresponds to a spec entry).
+**Honest status:** the orthogonality result is real and positive. The 8-rule count is the actual Q1 deliverable. Q1 is answered on structure: the checker is small (8 enforced rules, 3 orthogonal properties) and clean (no invented rules, each corresponds to a spec entry). Cleanup firing is not statically verified — that is a runtime/codegen concern, explicitly out of PoC scope.
 
 ---
 
@@ -136,6 +134,7 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 
 | Limitation | Impact | Fix path |
 |-----------|--------|----------|
+| **Cleanup firing not statically verified** — the checker tracks ownership and move/lend mode but does not verify that declared cleanup actually fires. `break` and `?` paths are assumed to trigger runtime cleanup; this is not checked. "Automatic cleanup" is one of FIT's four differentiators (§1.3) and is not tested by the PoC. | Automatic cleanup is not verified. A program that escapes cleanup (e.g. via an unannotated extern that discards a resource) would not be caught. | Codegen/runtime concern; requires a backend to test. |
 | **Stored-into-aggregate gap** — `pool_add(pool, c)` is not detected as consuming `c` unless `pool_add`'s param is explicitly annotated `move`. Body-scan only detects consumption by direct move-mode call, Ok/Err wrapping, and drop(). | Functions that store a resource into a collection are a documentation gap; fix by requiring explicit annotation on such functions. | Require and enforce explicit annotation; emit BuildError if missing. |
 | **Self-recursive / mutually-recursive inference** — during pass-2 body scan, a self-recursive call uses the function's own placeholder lend mode, so the recursive call appears as lend. Self-recursive functions must carry explicit annotation on any resource param they consume. Mutual recursion is not handled (no fixed-point iteration). | Self-recursive functions without explicit annotation undercount consumption. Mutual recursion cannot be inferred at all. | Fixed-point iteration over the call graph (post-PoC). |
 | **Match variant payload types** — bindings introduced by match patterns receive type `plain/unrestricted`. | Linear values inside enum variants are not tracked. | Resolve enum variant payload types during type environment construction. |

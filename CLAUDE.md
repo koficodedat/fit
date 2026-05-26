@@ -146,19 +146,16 @@ The PoC is complete when:
 4. The two canonical programs are readable by a non-programmer — print them formatted
    for the reader study (PoC question 2).
 
-### PoC status: COMPLETE — post-remediation (2026-05-25)
+### PoC status: mechanism complete; viability questions partially answered (2026-05-25)
 
-| Criterion | Result |
-|-----------|--------|
-| 1. Canonical programs | ✅ All three pass — 0 errors (`payment.fit`, `smtp.fit`, `drain.fit`) |
-| 2. `should_fail` suite | ✅ 9 cases, all produce correct located errors |
-| 3. Line count | ✅ parser: 544 · checker: 336 · types: 290 · ast: 56 · **total: 1226** |
-| 4. Reader study | ⚠️ `docs/reader-study.md` written — study not yet conducted |
+- **Q1 (small/clean checker):** answered on structure — 8 enforced rules, 3 orthogonal properties. Cleanup firing not statically verified (runtime/codegen concern, out of PoC scope).
+- **Q2 (no-sigil readability):** ⚠️ **unverified** — `docs/reader-study.md` instrument written; study not yet conducted.
+- **Q3 (typestate/recursion guardrail):** answered — `drain.fit` exercises the recursion idiom; `drain_loop.fit` is correctly rejected.
 
-**Line count note (criterion 3):** The 2× gap vs Austral (~600 lines, OCaml) measures
-TypeScript vs. OCaml language verbosity, not semantic complexity. The semantic work in
-`checker.ts` (336 lines) is directly comparable to Austral's equivalent. `types.ts` (290
-lines) implements the two-pass type environment construction and body-scan inference.
+**Test suite:** 258 tests across 6 suites (unit, integration, edge cases, should_pass/should_fail), all passing.
+**Canonical programs:** `payment.fit`, `smtp.fit`, `drain.fit` — all pass, 0 errors.
+**Line count:** parser: 544 · checker: 336 · types: 290 · ast: 56 · **total: 1226** (2× Austral reflects TypeScript vs. OCaml verbosity; see `docs/poc-findings.md`).
+
 See `docs/poc-findings.md` for the full assessment.
 
 **Test suite:** 258 tests across 6 suites (unit, integration, edge cases, should_pass/should_fail).
