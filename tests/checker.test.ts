@@ -497,6 +497,25 @@ describe("canonical programs — integration", () => {
     }
     expect(errors).toEqual([]);
   });
+
+  it("drain.fit produces no checker errors", () => {
+    const src = fs.readFileSync(path.join(__dirname, "drain.fit"), "utf-8");
+    const errors = check(parse(src, "drain.fit"));
+    if (errors.length > 0) {
+      console.log("drain.fit errors:", JSON.stringify(errors, null, 2));
+    }
+    expect(errors).toEqual([]);
+  });
+
+  it("drain_loop.fit produces a loop-typestate error naming 'c', 'Open', and 'Draining'", () => {
+    const src = fs.readFileSync(path.join(__dirname, "should_fail", "drain_loop.fit"), "utf-8");
+    const errors = check(parse(src, "drain_loop.fit"));
+    const loopErr = errors.find((e) => e.message.includes("loop body changes typestate"));
+    expect(loopErr).toBeDefined();
+    expect(loopErr!.message).toContain("'c'");
+    expect(loopErr!.message).toContain("'Open'");
+    expect(loopErr!.message).toContain("'Draining'");
+  });
 });
 
 describe("stress tests — gaps and edge cases", () => {

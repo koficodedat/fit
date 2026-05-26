@@ -1,0 +1,30 @@
+// drain_loop.fit — must fail
+//
+// Attempting to express the Open → Draining transition inside a loop.
+// recv() consumes Channel<Open> and returns Channel<Draining> — the typestate
+// advances every iteration. The rebind `c = recv(c)?` leaves c with a new
+// typestate at the end of the loop body, which the checker detects:
+//   "loop body changes typestate of 'c' from 'Open' to 'Draining'; use recursion instead"
+
+enum ChannelState { Open, Draining }
+
+resource Channel<S> {
+    id:      ChannelId,
+    cleanup: force_close_channel,
+}
+
+enum DrainError { Closed, IoError }
+
+fn open_channel() -> Result<Channel<Open>, DrainError>
+fn recv(c: move Channel<Open>) -> Result<Channel<Draining>, DrainError>
+
+// Error: loop body advances c from Open to Draining.
+// Each loop iteration would need Channel<Open> but produces Channel<Draining>.
+// Use recursion (drain.fit) instead.
+fn bad_drain(c: move Channel<Open>) -> Result<(), DrainError> {
+    loop {
+        c = recv(c)?
+        break
+    }
+    Ok(())
+}

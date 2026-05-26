@@ -1,0 +1,41 @@
+// drain.fit — third canonical program
+//
+// Demonstrates the loop-across-typestate-boundary constraint.
+// A Channel transitions from Open → Draining as each message is read.
+// Because the typestate changes on every iteration, a loop cannot express
+// this — the checker rejects any attempt (see drain_loop.fit).
+// The correct encoding uses recursion, which the checker accepts here.
+
+enum ChannelState { Open, Draining }
+
+resource Channel<S> {
+    id:      ChannelId,
+    cleanup: force_close_channel,
+}
+
+enum DrainError { Closed, IoError }
+
+// open_channel: creates a fresh Channel in Open state.
+fn open_channel() -> Result<Channel<Open>, DrainError>
+
+// recv: reads one message from an Open channel and transitions it to Draining.
+// Returns the message and the channel in its new state.
+fn recv(c: move Channel<Open>) -> Result<Channel<Draining>, DrainError>
+
+// on_close: finalises a Draining channel (sends acknowledgement, flushes buffers).
+fn on_close(c: move Channel<Draining>) -> Result<(), DrainError>
+
+// drain: recursive — Open → recv → Draining → on_close.
+// The typestate advances every call, so recursion is required.
+fn drain(c: move Channel<Open>) -> Result<(), DrainError> {
+    let c = recv(c)?
+    on_close(c)?
+    Ok(())
+}
+
+// run: top-level entry point.
+fn run() -> Result<(), DrainError> {
+    let c = open_channel()?
+    drain(c)?
+    Ok(())
+}
