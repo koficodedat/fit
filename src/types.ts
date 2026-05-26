@@ -1,4 +1,4 @@
-import { Program, Type } from "./ast";
+import { Program, Type, Stmt, Expr, Pos } from "./ast";
 
 export type MemoryMode = "unrestricted" | "linear";
 export type ParamMode = "lend" | "move";
@@ -47,6 +47,11 @@ export type TypeEnv = {
 // functions map during buildTypeEnv's two-pass construction.
 export type ResolveEnv = Pick<TypeEnv, "resources" | "aliases">;
 
+// Errors emitted during type-environment construction (e.g. missing annotation on
+// extern linear param). Structurally identical to CheckError in checker.ts so they
+// can be merged into the same error array without a shared import.
+export type BuildError = { message: string; pos: Pos };
+
 // Recursion depth is bounded by the nesting depth of the Type AST.
 // Pathologically deep types (e.g. 10k-nested Result) can overflow the JS call stack.
 // For the PoC this is acceptable — all source files are trusted.
@@ -92,39 +97,114 @@ export function resolveType(ast: Type, env: ResolveEnv): FitType {
   }
 }
 
-// Does not expand aliases: "SessionError" would not match its member names ("SmtpError").
-// In FIT, type aliases are error unions only — resource aliasing doesn't arise in the PoC,
-// so alias non-expansion is an accepted limitation of the heuristic.
-function typeContainsName(t: Type, name: string): boolean {
-  switch (t.kind) {
-    case "unit":
+// --- Body-based inference ---
+//
+// A resource parameter is classified as "move" if the function body transfers it
+// onward on any path: returned via Ok/Err, passed as a move-mode argument to another
+// function, or passed to drop().
+//
+// Known gaps (documented PoC limitations):
+// - Store-into-aggregate: `pool_add(pool, c)` is not detected as consuming `c` unless
+//   pool_add's param is already known as move. Fix: require explicit annotation on such
+//   functions.
+// - Self-recursive / mutually-recursive functions: body-scan uses placeholder lend for
+//   the function's own params during pass-2, so the recursive call appears as lend.
+//   Self-recursive functions must carry an explicit annotation. Fix: fixed-point
+//   iteration over the call graph (deferred past PoC).
+
+function exprConsumesVar(
+  name: string,
+  expr: Expr,
+  fnMap: Map<string, FunctionSig>
+): boolean {
+  switch (expr.kind) {
+    case "var":
+      return false; // reading a var doesn't consume it
+    case "call": {
+      if (expr.fn === "drop") {
+        return expr.args.some((a) => a.kind === "var" && a.name === name);
+      }
+      const sig = fnMap.get(expr.fn);
+      if (!sig) return false;
+      for (let i = 0; i < sig.params.length && i < expr.args.length; i++) {
+        const arg = expr.args[i];
+        if (sig.params[i].mode === "move" && arg.kind === "var" && arg.name === name) {
+          return true;
+        }
+      }
       return false;
-    case "named":
-      return t.name === name || (t.typeArg !== null && typeContainsName(t.typeArg, name));
-    case "result":
-      return typeContainsName(t.ok, name) || typeContainsName(t.err, name);
+    }
+    case "ok":
+    case "err":
+      // Ok(name) / Err(name) — wrapping the resource transfers ownership
+      if (expr.expr.kind === "var" && expr.expr.name === name) return true;
+      return exprConsumesVar(name, expr.expr, fnMap);
+    case "try":
+      return exprConsumesVar(name, expr.expr, fnMap);
+    case "unit_val":
+      return false;
     default: {
-      const _exhaustive: never = t;
+      const _exhaustive: never = expr;
       return false;
     }
   }
 }
 
-// paramBaseName="" is a sentinel meaning "no base name" — produced by buildTypeEnv for
-// non-named params (unit or result types). Empty string never matches any type name,
-// so it always infers "lend". This is correct: non-named params are never linear resources.
-export function inferParamMode(paramBaseName: string, returnType: Type): ParamMode {
-  return typeContainsName(returnType, paramBaseName) ? "move" : "lend";
+function stmtConsumesVar(
+  name: string,
+  stmt: Stmt,
+  fnMap: Map<string, FunctionSig>
+): boolean {
+  switch (stmt.kind) {
+    case "expr":
+      return exprConsumesVar(name, stmt.expr, fnMap);
+    case "let":
+      return exprConsumesVar(name, stmt.init, fnMap);
+    case "rebind":
+      return exprConsumesVar(name, stmt.expr, fnMap);
+    case "if":
+      return (
+        bodyConsumesVar(name, stmt.then, fnMap) ||
+        bodyConsumesVar(name, stmt.else_, fnMap)
+      );
+    case "loop":
+      return bodyConsumesVar(name, stmt.body, fnMap);
+    case "match":
+      return stmt.arms.some((arm) => bodyConsumesVar(name, arm.body, fnMap));
+    case "break":
+    case "select":
+      return false;
+    default: {
+      const _exhaustive: never = stmt;
+      return false;
+    }
+  }
 }
 
-export function buildTypeEnv(program: Program): TypeEnv {
+function bodyConsumesVar(
+  name: string,
+  stmts: Stmt[],
+  fnMap: Map<string, FunctionSig>
+): boolean {
+  return stmts.some((s) => stmtConsumesVar(name, s, fnMap));
+}
+
+function inferParamModeFromBody(
+  paramName: string,
+  body: Stmt[],
+  fnMap: Map<string, FunctionSig>
+): ParamMode {
+  return bodyConsumesVar(paramName, body, fnMap) ? "move" : "lend";
+}
+
+export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: BuildError[] } {
   const resources = new Map<string, ResourceInfo>();
   const aliases = new Map<string, string[]>();
   const functions = new Map<string, FunctionSig>();
+  const buildErrors: BuildError[] = [];
 
-  // Duplicate decl names silently last-write-win — the parser does not enforce
-  // name uniqueness and buildTypeEnv does not either. Step 3 (checker) is
-  // responsible for catching duplicate declarations if needed.
+  // Pass 1a: resources and aliases.
+  // Duplicate decl names silently last-write-win — unchanged from original behaviour.
   for (const decl of program.decls) {
     if (decl.kind === "resource") {
       resources.set(decl.name, {
@@ -134,31 +214,77 @@ export function buildTypeEnv(program: Program): TypeEnv {
         fallback: decl.cleanup.fallback,
       });
     } else if (decl.kind === "type_alias") {
-      aliases.set(decl.name, [...decl.members]); // defensive copy — callers must not mutate alias member arrays.
+      aliases.set(decl.name, [...decl.members]); // defensive copy
     }
-    // capability, record, enum decls are intentionally ignored in pass 1.
+    // capability, record, enum decls are intentionally ignored in pass 1a.
   }
 
   // Two-pass boundary: resolveEnv excludes functions so resolveType cannot access the
-  // partially-built functions map. Do NOT merge the passes — that would break this invariant.
+  // partially-built functions map. Do NOT merge the passes.
   const resolveEnv: ResolveEnv = { resources, aliases };
 
+  // Pass 1b: build all function signatures.
+  // Externs (no body): use explicit annotation; emit BuildError for unannotated linear params.
+  // Bodied functions: use explicit annotation if present; otherwise placeholder lend
+  //   (pass-2 will re-infer by body inspection).
   for (const decl of program.decls) {
     if (decl.kind === "fn") {
-      // decl.body may be null (signature-only fn). buildTypeEnv does not inspect it.
-      // Step 3 must guard on decl.body === null before attempting linearity checks.
       const returnType = resolveType(decl.returnType, resolveEnv);
       const params: ResolvedParam[] = decl.params.map((p) => {
         const type_ = resolveType(p.type_, resolveEnv);
-        const baseName = p.type_.kind === "named" ? p.type_.name : "";
-        // decl.returnType is re-traversed once per param (no pre-indexing). Acceptable for small signatures.
-        const mode = inferParamMode(baseName, decl.returnType); // raw AST: alias expansion not needed for name-matching heuristic
+        let mode: ParamMode;
+        if (type_.kind === "resource") {
+          if (p.annotatedMode !== null) {
+            // Explicit annotation — used for both externs and bodied functions.
+            mode = p.annotatedMode;
+          } else if (decl.body === null) {
+            // Extern with a linear param and no annotation. Per spec §4 (amended):
+            // this is a compile error. Conservative lend fallback keeps type-checking going.
+            buildErrors.push({
+              message: `extern '${decl.name}' has linear parameter '${p.name}' with no move/lend annotation`,
+              pos: decl.pos,
+            });
+            mode = "lend";
+          } else {
+            // Bodied function, no annotation — placeholder lend for pass-2 re-inference.
+            mode = "lend";
+          }
+        } else {
+          // Non-linear param: move/lend distinction is meaningless (nothing to consume).
+          // Annotation is accepted if present but not required. Always effectively lend.
+          mode = "lend";
+        }
         return { name: p.name, type_, mode };
       });
-      functions.set(decl.name, { name: decl.name, params, caps: [...decl.caps], returnType }); // defensive copy — callers must not mutate caps arrays.
+      functions.set(decl.name, {
+        name: decl.name,
+        params,
+        caps: [...decl.caps], // defensive copy
+        returnType,
+      });
     }
   }
 
-  // Callers must null-check env.functions.get(name) — Map returns undefined on miss.
-  return { resources, aliases, functions };
+  // Pass 2: re-infer modes for bodied functions whose resource params lack explicit annotation.
+  // Processes declarations in source order — correct for DAG call graphs (callee appears before
+  // caller, or caller has explicit annotation). Self-recursive and mutually-recursive functions
+  // require explicit annotations (single-pass, no fixed-point iteration in PoC).
+  for (const decl of program.decls) {
+    if (decl.kind === "fn" && decl.body !== null) {
+      const sig = functions.get(decl.name)!;
+      for (let i = 0; i < sig.params.length; i++) {
+        const param = sig.params[i];
+        const astParam = decl.params[i];
+        if (param.type_.kind === "resource" && astParam.annotatedMode === null) {
+          // No explicit annotation: infer from body using current function map.
+          // Callee modes are already settled (externs from pass-1b; earlier bodied
+          // functions updated in-place by prior iterations of this loop).
+          param.mode = inferParamModeFromBody(param.name, decl.body, functions);
+        }
+        // If annotated: mode was set in pass-1b — leave it.
+      }
+    }
+  }
+
+  return { env: { resources, aliases, functions }, buildErrors };
 }

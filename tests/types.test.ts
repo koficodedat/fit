@@ -1,12 +1,5 @@
 // tests/types.test.ts
-import {
-  FitType,
-  ResolveEnv,
-  TypeEnv,
-  resolveType,
-  inferParamMode,
-  buildTypeEnv,
-} from "../src/types";
+import { FitType, BuildError, ResolveEnv, TypeEnv, resolveType, buildTypeEnv } from "../src/types";
 import { Type } from "../src/ast";
 import * as fs from "fs";
 import * as path from "path";
@@ -66,8 +59,9 @@ describe("types module data structures", () => {
     expect(typeof resolveType).toBe("function");
   });
 
-  it("exports inferParamMode as a function", () => {
-    expect(typeof inferParamMode).toBe("function");
+  it("exports BuildError type (build-time error from buildTypeEnv)", () => {
+    const e: BuildError = { message: "test", pos: { line: 1, col: 1 } };
+    expect(e.message).toBe("test");
   });
 
   it("exports buildTypeEnv as a function", () => {
@@ -250,87 +244,89 @@ describe("resolveType", () => {
   });
 });
 
-describe("inferParamMode", () => {
-  it("move: param base type matches named return type directly", () => {
-    const ret: Type = {
-      kind: "named",
-      name: "Conn",
-      typeArg: { kind: "named", name: "Ready", typeArg: null },
-    };
-    expect(inferParamMode("Conn", ret)).toBe("move");
+describe("body-based inference via buildTypeEnv", () => {
+  it("bodied function: param passed to move callee → inferred move", () => {
+    const src = `
+      resource Token { id: TokenId, cleanup: void_token }
+      fn consume(t: move Token) -> ()
+      fn wrapper(t: Token) -> () {
+          consume(t)
+      }
+    `;
+    const { env } = buildTypeEnv(parse(src, "t.fit"));
+    expect(env.functions.get("wrapper")!.params[0]).toMatchObject({ name: "t", mode: "move" });
   });
 
-  it("move: param base type found in Result ok branch", () => {
-    const ret: Type = {
-      kind: "result",
-      ok: {
-        kind: "named",
-        name: "SmtpConn",
-        typeArg: { kind: "named", name: "Greeted", typeArg: null },
-      },
-      err: { kind: "named", name: "SessionError", typeArg: null },
-    };
-    expect(inferParamMode("SmtpConn", ret)).toBe("move");
+  it("bodied function: param only passed to lend callees → inferred lend", () => {
+    const src = `
+      resource Conn { sock: X, cleanup: force_close }
+      fn read(c: lend Conn) -> String
+      fn process(c: Conn) -> () {
+          read(c)
+      }
+    `;
+    const { env } = buildTypeEnv(parse(src, "t.fit"));
+    expect(env.functions.get("process")!.params[0]).toMatchObject({ name: "c", mode: "lend" });
   });
 
-  it("move: param base type found in Result err branch only", () => {
-    // e.g. fn try_op(c: Conn<Fresh>) -> Result<(), Conn<Fresh>> — err branch carries the resource back
-    const ret: Type = {
-      kind: "result",
-      ok: { kind: "unit" },
-      err: {
-        kind: "named",
-        name: "SmtpConn",
-        typeArg: { kind: "named", name: "Fresh", typeArg: null },
-      },
-    };
-    expect(inferParamMode("SmtpConn", ret)).toBe("move");
+  it("bodied function: param returned via Ok → inferred move", () => {
+    const src = `
+      resource Token { id: TokenId, cleanup: void_token }
+      fn wrap(t: Token) -> Result<Token, Error> {
+          Ok(t)
+      }
+    `;
+    const { env } = buildTypeEnv(parse(src, "t.fit"));
+    expect(env.functions.get("wrap")!.params[0]).toMatchObject({ name: "t", mode: "move" });
   });
 
-  it("move: param type found in typeArg of named return (known gap: appearance ≠ consumption)", () => {
-    // e.g. fn wrap(c: SmtpConn<Ready>) -> Wrapper<SmtpConn>
-    // SmtpConn appears as a typeArg of Wrapper, so the heuristic infers "move".
-    // This may be wrong if the function only reads c rather than consuming it —
-    // the heuristic cannot distinguish wrapping from consuming.
-    const ret: Type = {
-      kind: "named",
-      name: "Wrapper",
-      typeArg: { kind: "named", name: "SmtpConn", typeArg: null },
-    };
-    expect(inferParamMode("SmtpConn", ret)).toBe("move");
+  it("bodied function: explicit annotation overrides body inference", () => {
+    const src = `
+      resource Conn { sock: X, cleanup: force_close }
+      fn use_it(c: lend Conn) -> () {
+          drop(c)
+      }
+    `;
+    // Annotation says lend; body says move (drop). Annotation wins.
+    const { env } = buildTypeEnv(parse(src, "t.fit"));
+    expect(env.functions.get("use_it")!.params[0]).toMatchObject({ name: "c", mode: "lend" });
   });
 
-  it("lend: param base type not in return — send_message and close patterns", () => {
-    // send_message(c: SmtpConn<Ready>, ...) -> Result<(), ...>: lend is CORRECT (caller keeps c)
-    // close(c: SmtpConn<Closing>) -> Result<(), ...>: lend is WRONG (known gap — close consumes c,
-    //   but SmtpConn is absent from the return type so the heuristic cannot detect it)
-    const ret: Type = {
-      kind: "result",
-      ok: { kind: "unit" },
-      err: { kind: "named", name: "SessionError", typeArg: null },
-    };
-    expect(inferParamMode("SmtpConn", ret)).toBe("lend");
+  it("extern with move annotation → mode is move", () => {
+    const src = `
+      resource Conn { sock: X, cleanup: force_close }
+      fn close(c: move Conn) -> ()
+    `;
+    const { env } = buildTypeEnv(parse(src, "t.fit"));
+    expect(env.functions.get("close")!.params[0]).toMatchObject({ name: "c", mode: "move" });
   });
 
-  it("lend: different type in return — validate_card pattern", () => {
-    // validate_card(card: CardDetails) -> Result<AuthToken, PaymentError>
-    // CardDetails not in return → lend (correct: caller doesn't lose card details)
-    const ret: Type = {
-      kind: "result",
-      ok: { kind: "named", name: "AuthToken", typeArg: null },
-      err: { kind: "named", name: "PaymentError", typeArg: null },
-    };
-    expect(inferParamMode("CardDetails", ret)).toBe("lend");
+  it("extern with lend annotation → mode is lend", () => {
+    const src = `
+      resource Conn { sock: X, cleanup: force_close }
+      fn read(c: lend Conn) -> String
+    `;
+    const { env } = buildTypeEnv(parse(src, "t.fit"));
+    expect(env.functions.get("read")!.params[0]).toMatchObject({ name: "c", mode: "lend" });
   });
 
-  it("lend: unit return always produces lend", () => {
-    expect(inferParamMode("AuthToken", { kind: "unit" })).toBe("lend");
+  it("extern linear param without annotation → buildError emitted, mode defaults to lend", () => {
+    const src = `
+      resource Conn { sock: X, cleanup: force_close }
+      fn close(c: Conn) -> ()
+    `;
+    const { env, buildErrors } = buildTypeEnv(parse(src, "t.fit"));
+    expect(buildErrors).toHaveLength(1);
+    expect(buildErrors[0].message).toContain("extern 'close'");
+    expect(buildErrors[0].message).toContain("linear parameter 'c'");
+    expect(buildErrors[0].message).toContain("no move/lend annotation");
+    expect(env.functions.get("close")!.params[0].mode).toBe("lend");
   });
 
-  it("lend: empty base name never matches", () => {
-    // Result-typed or unit-typed params produce baseName="" in buildTypeEnv; never move.
-    const ret: Type = { kind: "named", name: "AuthToken", typeArg: null };
-    expect(inferParamMode("", ret)).toBe("lend");
+  it("extern non-linear param without annotation → no error", () => {
+    const src = `fn greet(name: String) -> ()`;
+    const { buildErrors } = buildTypeEnv(parse(src, "t.fit"));
+    expect(buildErrors).toHaveLength(0);
   });
 });
 
@@ -338,7 +334,7 @@ describe("buildTypeEnv — payment.fit", () => {
   let env!: TypeEnv;
   beforeAll(() => {
     const src = fs.readFileSync(path.join(__dirname, "payment.fit"), "utf8");
-    env = buildTypeEnv(parse(src, "payment.fit"));
+    env = buildTypeEnv(parse(src, "payment.fit")).env;
   });
 
   it("registers AuthToken as a linear resource with cleanup void_token", () => {
@@ -384,14 +380,10 @@ describe("buildTypeEnv — payment.fit", () => {
     expect(sig!.caps).toEqual(["Net", "ChargeCard"]);
   });
 
-  it("execute_charge: token param is lend — AuthToken not in Result<Receipt, ...> (known gap)", () => {
-    // execute_charge semantically consumes the auth token (one-time use), but the heuristic
-    // returns lend because AuthToken does not appear in Result<Receipt, PaymentError>.
-    // The checker in Step 3 will record cleanup firing for token at scope exit — a false
-    // double-close event — but this does not cause the canonical program to be rejected.
+  it("execute_charge: token param is move — annotated explicitly in payment.fit", () => {
     const sig = env.functions.get("execute_charge");
     expect(sig).toBeDefined();
-    expect(sig!.params[0]).toMatchObject({ name: "token", mode: "lend" });
+    expect(sig!.params[0]).toMatchObject({ name: "token", mode: "move" });
   });
 });
 
@@ -399,7 +391,7 @@ describe("buildTypeEnv — smtp.fit", () => {
   let env!: TypeEnv;
   beforeAll(() => {
     const src = fs.readFileSync(path.join(__dirname, "smtp.fit"), "utf8");
-    env = buildTypeEnv(parse(src, "smtp.fit"));
+    env = buildTypeEnv(parse(src, "smtp.fit")).env;
   });
 
   it("registers SmtpConn as a resource with typeParam S", () => {
@@ -421,7 +413,7 @@ describe("buildTypeEnv — smtp.fit", () => {
     expect(sig!.params[0]).toMatchObject({ name: "host", mode: "lend" });
   });
 
-  it("greet: c param is move — SmtpConn appears in Result<SmtpConn<Greeted>, ...>", () => {
+  it("greet: c param is move — annotated explicitly in smtp.fit", () => {
     const sig = env.functions.get("greet");
     expect(sig).toBeDefined();
     expect(sig!.params[0]).toMatchObject({ name: "c", mode: "move" });
@@ -434,16 +426,16 @@ describe("buildTypeEnv — smtp.fit", () => {
     expect(sig!.params[1]).toMatchObject({ name: "creds", mode: "lend" });
   });
 
-  it("send_message: c is lend — SmtpConn not in Result<(), ...> (correct)", () => {
+  it("send_message: c is lend — annotated explicitly in smtp.fit", () => {
     const sig = env.functions.get("send_message");
     expect(sig).toBeDefined();
     expect(sig!.params[0]).toMatchObject({ name: "c", mode: "lend" });
   });
 
-  it("close: c is lend — SmtpConn not in Result<(), ...> (known gap: close actually consumes c)", () => {
+  it("close: c is move — annotated explicitly in smtp.fit", () => {
     const sig = env.functions.get("close");
     expect(sig).toBeDefined();
-    expect(sig!.params[0]).toMatchObject({ name: "c", mode: "lend" });
+    expect(sig!.params[0]).toMatchObject({ name: "c", mode: "move" });
   });
 
   it("greet: returnType ok is SmtpConn<Greeted> resource", () => {
@@ -490,7 +482,7 @@ describe("buildTypeEnv — smtp.fit", () => {
 
 describe("buildTypeEnv — edge cases", () => {
   it("handles empty program — all maps empty", () => {
-    const env = buildTypeEnv({ decls: [] });
+    const { env } = buildTypeEnv({ decls: [] });
     expect(env.resources.size).toBe(0);
     expect(env.aliases.size).toBe(0);
     expect(env.functions.size).toBe(0);
@@ -498,7 +490,7 @@ describe("buildTypeEnv — edge cases", () => {
 
   it("registers zero-param function with empty params array", () => {
     const prog = parse("fn noop() -> ()", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("noop");
     expect(sig).toBeDefined();
     expect(sig!.params).toHaveLength(0);
@@ -507,7 +499,7 @@ describe("buildTypeEnv — edge cases", () => {
 
   it("registers resource with fallback cleanup correctly", () => {
     const prog = parse("resource R { f: X, cleanup: fallback force_close }", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     expect(env.resources.get("R")).toEqual({
       name: "R",
       typeParam: null,
@@ -520,7 +512,7 @@ describe("buildTypeEnv — edge cases", () => {
     // records are not in the resources map — the checker handles transitively-linear
     // records in Step 3; here they correctly resolve as plain unrestricted.
     const prog = parse("record Pt { x: Int } fn origin() -> Pt", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("origin");
     expect(sig).toBeDefined();
     expect(sig!.returnType).toEqual({ kind: "plain", mode: "unrestricted", name: "Pt" });
@@ -533,13 +525,13 @@ describe("buildTypeEnv — edge cases", () => {
       "resource Conn { sock: X, cleanup: close_a } resource Conn { sock: Y, cleanup: close_b }",
       "test.fit"
     );
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     expect(env.resources.get("Conn")).toMatchObject({ cleanup: "close_b" });
   });
 
   it("duplicate fn name — second decl silently overwrites first", () => {
     const prog = parse("fn greet() -> () fn greet(x: Int) -> ()", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("greet");
     expect(sig).toBeDefined();
     expect(sig!.params).toHaveLength(1); // second decl wins
@@ -547,7 +539,7 @@ describe("buildTypeEnv — edge cases", () => {
 
   it("zero-param function with resource return type", () => {
     const prog = parse("resource Conn { sock: X, cleanup: close } fn create() -> Conn", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("create");
     expect(sig).toBeDefined();
     expect(sig!.params).toHaveLength(0);
@@ -561,11 +553,11 @@ describe("buildTypeEnv — edge cases", () => {
     });
   });
 
-  it("fn with Result-typed param — baseName is empty string, mode is lend", () => {
-    // Non-named param types produce baseName="" in buildTypeEnv.
-    // inferParamMode("", ...) always returns "lend" since "" matches no type name.
+  it("fn with Result-typed param — non-resource, mode is lend", () => {
+    // Result-typed params are not resources; move/lend distinction is irrelevant.
+    // Always classified as lend regardless of body or annotation.
     const prog = parse("fn unwrap(r: Result<A, B>) -> ()", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("unwrap");
     expect(sig).toBeDefined();
     expect(sig!.params[0]).toMatchObject({ name: "r", mode: "lend" });
@@ -576,7 +568,7 @@ describe("buildTypeEnv — edge cases", () => {
       "enum Color { Red, Green } record Point { x: Int } fn noop() -> ()",
       "test.fit"
     );
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     expect(env.resources.has("Color")).toBe(false);
     expect(env.resources.has("Point")).toBe(false);
     expect(env.aliases.has("Color")).toBe(false);
@@ -587,7 +579,7 @@ describe("buildTypeEnv — edge cases", () => {
   it("fn with plain (undeclared) return type resolves to plain unrestricted in FunctionSig", () => {
     // Ensures buildTypeEnv.returnType goes through resolveType, not raw AST passthrough.
     const prog = parse("fn describe(x: Int) -> SomeUndeclaredType", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("describe");
     expect(sig).toBeDefined();
     expect(sig!.returnType).toEqual({
@@ -604,7 +596,7 @@ describe("buildTypeEnv — edge cases", () => {
       "resource Dual { f: X, cleanup: cleanup_fn } type Dual = A | B fn use_it(d: Dual) -> ()",
       "test.fit"
     );
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("use_it");
     expect(sig).toBeDefined();
     expect(sig!.params[0].type_.kind).toBe("resource");
@@ -614,7 +606,7 @@ describe("buildTypeEnv — edge cases", () => {
     // buildTypeEnv defers capability validation to Step 4 (capability checker).
     // An undeclared cap name passes through without error.
     const prog = parse("fn sensitive() using UndeclaredCap -> ()", "test.fit");
-    const env = buildTypeEnv(prog);
+    const { env } = buildTypeEnv(prog);
     const sig = env.functions.get("sensitive");
     expect(sig).toBeDefined();
     expect(sig!.caps).toEqual(["UndeclaredCap"]);

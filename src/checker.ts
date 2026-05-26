@@ -8,8 +8,8 @@ type Scope = Map<string, Binding>;
 type CapScope = Set<string>;
 
 export function check(program: Program): CheckError[] {
-  const env = buildTypeEnv(program);
-  const errors: CheckError[] = [];
+  const { env, buildErrors } = buildTypeEnv(program);
+  const errors: CheckError[] = [...buildErrors];
   for (const decl of program.decls) {
     if (decl.kind === "fn" && decl.body !== null) {
       checkFn(decl.name, decl.body, env, errors);
