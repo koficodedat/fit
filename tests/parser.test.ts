@@ -130,7 +130,7 @@ test("parse fn signature only — no using", () => {
   if (d.kind === "fn") {
     expect(d.name).toBe("greet");
     expect(d.params).toEqual([
-      { name: "name", type_: { kind: "named", name: "String", typeArg: null } },
+      { name: "name", type_: { kind: "named", name: "String", typeArg: null }, annotatedMode: null },
     ]);
     expect(d.caps).toEqual([]);
     expect(d.returnType).toEqual({ kind: "unit" });
@@ -160,6 +160,51 @@ test("parse fn signature with multiple caps", () => {
   const d = prog.decls[0];
   if (d.kind === "fn") {
     expect(d.caps).toEqual(["Net", "ChargeCard"]);
+  }
+});
+
+test("parse fn param with move annotation", () => {
+  const prog = parse("fn close(c: move SmtpConn<Closing>) -> ()", "t.fit");
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.params[0]).toEqual({
+      name: "c",
+      type_: {
+        kind: "named",
+        name: "SmtpConn",
+        typeArg: { kind: "named", name: "Closing", typeArg: null },
+      },
+      annotatedMode: "move",
+    });
+  }
+});
+
+test("parse fn param with lend annotation", () => {
+  const prog = parse("fn send(c: lend Conn<Ready>, msg: String) -> ()", "t.fit");
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.params[0]).toMatchObject({ name: "c", annotatedMode: "lend" });
+    expect(d.params[1]).toMatchObject({ name: "msg", annotatedMode: null });
+  }
+});
+
+test("parse fn param without annotation — annotatedMode is null", () => {
+  const prog = parse("fn f(x: Token) -> ()", "t.fit");
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.params[0]).toMatchObject({ name: "x", annotatedMode: null });
+  }
+});
+
+test("parse fn with mixed annotated and unannotated params", () => {
+  const prog = parse(
+    "fn auth(c: move SmtpConn<Fresh>, creds: Credentials) using Net -> Result<SmtpConn<Greeted>, SessionError>",
+    "t.fit"
+  );
+  const d = prog.decls[0];
+  if (d.kind === "fn") {
+    expect(d.params[0]).toMatchObject({ name: "c", annotatedMode: "move" });
+    expect(d.params[1]).toMatchObject({ name: "creds", annotatedMode: null });
   }
 });
 

@@ -257,8 +257,14 @@ class Parser {
     while (this.peek() !== ")") {
       const pname = this.ident();
       this.expect(":");
+      this.skip();
+      let annotatedMode: "move" | "lend" | null = null;
+      const maybeMode = this.peekIdent();
+      if (maybeMode === "move" || maybeMode === "lend") {
+        annotatedMode = this.ident() as "move" | "lend";
+      }
       const type_ = this.parseType();
-      params.push({ name: pname, type_ });
+      params.push({ name: pname, type_, annotatedMode });
       this.skip();
       if (this.peek() === ",") {
         this.advance();
