@@ -1,0 +1,45 @@
+// one_to_many.fit — one-to-many typestate transition via enum payload
+//
+// A single recv call returns a resource in one of two different typestates,
+// wrapped in an enum variant. The match arm binds the payload as a linear
+// resource and dispatches to the correct handler. The checker tracks linearity
+// through the enum payload: both arms must consume the bound Conn.
+//
+// process() is self-recursive: explicit `move` annotation required because
+// pass-2 body-scan cannot see through the recursive call's placeholder lend.
+
+resource Conn<S> {
+    id:      ConnId,
+    cleanup: close_conn,
+}
+
+enum NetError { Timeout, Refused }
+
+enum RecvResult {
+    More(Conn<Active>),
+    Done(Conn<Closing>),
+}
+
+fn recv(c: move Conn<Active>) -> Result<RecvResult, NetError>
+fn finish(c: move Conn<Closing>) -> ()
+fn open_conn() -> Result<Conn<Active>, NetError>
+
+fn process(c: move Conn<Active>) -> Result<(), NetError> {
+    let r = recv(c)?
+    match r {
+        More(c) => {
+            process(c)?
+            Ok(())
+        },
+        Done(c) => {
+            finish(c)
+            Ok(())
+        },
+    }
+}
+
+fn run() -> Result<(), NetError> {
+    let c = open_conn()?
+    process(c)?
+    Ok(())
+}

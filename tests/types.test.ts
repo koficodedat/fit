@@ -46,7 +46,7 @@ describe("types module data structures", () => {
   });
 
   it("can construct a TypeEnv", () => {
-    const env: TypeEnv = { resources: new Map(), aliases: new Map(), functions: new Map() };
+    const env: TypeEnv = { resources: new Map(), aliases: new Map(), enums: new Map(), functions: new Map() };
     expect(env.resources.size).toBe(0);
   });
 
@@ -69,7 +69,7 @@ describe("types module data structures", () => {
   });
 
   it("TypeEnv is structurally assignable to ResolveEnv (Pick subset relationship)", () => {
-    const full: TypeEnv = { resources: new Map(), aliases: new Map(), functions: new Map() };
+    const full: TypeEnv = { resources: new Map(), aliases: new Map(), enums: new Map(), functions: new Map() };
     const narrow: ResolveEnv = full;
     expect(narrow.resources.size).toBe(0);
   });

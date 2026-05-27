@@ -1238,6 +1238,87 @@ describe("stress test gap coverage", () => {
   });
 });
 
+describe("enum payload tracking", () => {
+  it("linear payload consumed on all arms — no error", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      enum Result2 { Live(Conn), Dead(Conn) }
+      fn make_conn() -> Conn
+      fn get_result() -> Result2
+      fn close_conn(c: move Conn) -> ()
+      fn test() -> () {
+        match get_result() {
+          Live(c) => { close_conn(c) },
+          Dead(c) => { close_conn(c) },
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("linear payload not consumed in its arm — error references arm variant name", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      enum Result2 { Live(Conn), Dead(Conn) }
+      fn make_conn() -> Conn
+      fn get_result() -> Result2
+      fn close_c(c: move Conn) -> ()
+      fn test() -> () {
+        match get_result() {
+          Live(c) => { close_c(c) },
+          Dead(c) => {},
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some((e) => e.message.includes("must be consumed") && e.message.includes("Dead"))).toBe(true);
+  });
+
+  it("unknown variant in pattern — 'unknown variant' error", () => {
+    const src = `
+      enum Foo { Alpha }
+      fn get_foo() -> Foo
+      fn test() -> () {
+        match get_foo() {
+          Beta => {},
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some((e) => e.message.includes("unknown variant") && e.message.includes("Beta"))).toBe(true);
+  });
+
+  it("no-payload variant with binds — 'no payload' error", () => {
+    const src = `
+      enum Status { Ok, Fail }
+      fn get_status() -> Status
+      fn test() -> () {
+        match get_status() {
+          Ok(x) => {},
+          Fail => {},
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some((e) => e.message.includes("Ok") && e.message.includes("no payload"))).toBe(true);
+  });
+
+  it("linear payload dropped unbound (zero binds) — 'linear payload' error", () => {
+    const src = `
+      resource Tok { cleanup: drop_tok }
+      enum Wrap { Wrapped(Tok) }
+      fn get_wrap() -> Wrap
+      fn test() -> () {
+        match get_wrap() {
+          Wrapped => {},
+        }
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.some((e) => e.message.includes("linear payload") && e.message.includes("Wrapped"))).toBe(true);
+  });
+});
+
 describe("edge cases", () => {
   it("recursive function does not crash or produce false errors", () => {
     // A function that calls itself. The checker looks up the sig in env.functions

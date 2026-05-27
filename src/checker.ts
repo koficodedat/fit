@@ -121,22 +121,93 @@ function checkStmt(
     }
 
     case "match": {
-      checkExpr(stmt.expr, scope, caps, env, errors);
+      const subjectType = checkExpr(stmt.expr, scope, caps, env, errors);
+      // Only enforce unknown-variant errors when the subject is a declared enum.
+      // Extern/unresolved return types fall back to stubs silently.
+      const subjectIsKnownEnum =
+        subjectType.kind === "plain" &&
+        [...env.enums.values()].some((v) => v.enumName === subjectType.name);
+
       const branchScopes: Scope[] = [];
       for (const arm of stmt.arms) {
         const armScope = cloneScope(scope);
+        // Names of linear payload bindings introduced by this arm — must be checked after
+        // checkStmts because mergeScopes only walks preScope, not arm-local bindings.
+        const armLinearBinds: string[] = [];
         if (arm.pattern.kind === "variant") {
-          for (const bind of arm.pattern.binds) {
-            // PoC limitation: payload type is not resolved from the enum definition.
-            // Linear enum variant payloads are not tracked — full fix is post-PoC.
-            armScope.set(bind, {
-              type_: { kind: "plain", mode: "unrestricted", name: "?" },
-              owned: true,
-              moved: false,
+          const variantInfo = env.enums.get(arm.pattern.name);
+          if (!variantInfo) {
+            if (subjectIsKnownEnum) {
+              errors.push({
+                message: `unknown variant '${arm.pattern.name}' in match pattern`,
+                pos: stmt.pos,
+              });
+            }
+            for (const bind of arm.pattern.binds) {
+              armScope.set(bind, {
+                type_: { kind: "plain", mode: "unrestricted", name: "?" },
+                owned: true,
+                moved: false,
+              });
+            }
+          } else if (variantInfo.payload === null) {
+            if (arm.pattern.binds.length > 0) {
+              errors.push({
+                message: `variant '${arm.pattern.name}' has no payload but pattern binds ${arm.pattern.binds.length} variable(s)`,
+                pos: stmt.pos,
+              });
+            }
+          } else {
+            if (arm.pattern.binds.length === 0) {
+              if (variantInfo.payload.mode === "linear") {
+                errors.push({
+                  message: `linear payload of variant '${arm.pattern.name}' must be bound to be consumed`,
+                  pos: stmt.pos,
+                });
+              }
+            } else if (arm.pattern.binds.length === 1) {
+              armScope.set(arm.pattern.binds[0], {
+                type_: variantInfo.payload,
+                owned: true,
+                moved: false,
+              });
+              if (variantInfo.payload.mode === "linear") {
+                armLinearBinds.push(arm.pattern.binds[0]);
+              }
+            } else {
+              errors.push({
+                message: `variant '${arm.pattern.name}' has a single payload; pattern binds ${arm.pattern.binds.length} variables (use a record for multi-field payloads)`,
+                pos: stmt.pos,
+              });
+              armScope.set(arm.pattern.binds[0], {
+                type_: variantInfo.payload,
+                owned: true,
+                moved: false,
+              });
+              if (variantInfo.payload.mode === "linear") {
+                armLinearBinds.push(arm.pattern.binds[0]);
+              }
+              for (let i = 1; i < arm.pattern.binds.length; i++) {
+                armScope.set(arm.pattern.binds[i], {
+                  type_: { kind: "plain", mode: "unrestricted", name: "?" },
+                  owned: true,
+                  moved: false,
+                });
+              }
+            }
+          }
+        }
+        const armVariantName = arm.pattern.kind === "variant" ? arm.pattern.name : "?";
+        checkStmts(arm.body, armScope, cloneCaps(caps), env, errors);
+        for (const bindName of armLinearBinds) {
+          const b = armScope.get(bindName);
+          if (b && !b.moved) {
+            errors.push({
+              message: `linear value '${bindName}' must be consumed in match arm for '${armVariantName}'`,
+              pos: stmt.pos,
             });
           }
         }
-        checkStmts(arm.body, armScope, cloneCaps(caps), env, errors);
         branchScopes.push(armScope);
       }
       const merged = mergeScopes(scope, branchScopes, errors, stmt.pos);

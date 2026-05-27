@@ -187,3 +187,35 @@ settles this: the rule is uniform — the extern author must call cleanup on eve
 The compiler enforces the caller side (move-out-skips-cleanup) and the author obligation
 covers the callee side. The differentiator holds for FIT-bodied code and extends to externs
 under the extern-obligation model, demonstrated by correct stubs; not compiler-verifiable.
+
+---
+
+## Linear enum payload tracking (post-spike fix)
+
+### The gap
+
+Before this fix, match pattern variables were bound to unrestricted stubs (`{ kind: "plain", mode: "unrestricted", name: "?" }`). Linear resources carried in enum variant payloads were invisible to the checker: a bound payload could be dropped, used after move, or left unconsumed with no error. `linear_payload_not_consumed.fit` — a `Connected(Conn)` arm that binds `c` and does nothing with it — was silently accepted.
+
+### The fix
+
+Three pieces were required:
+
+(a) **TypeEnv enums map** — `buildTypeEnv` now iterates enum declarations and registers each variant by name in `env.enums` (keyed by variant name, e.g. `"More"`, `"Done"`). Payloads are resolved via `resolveType` in a dedicated loop after `resolveEnv` is fully settled, so resource lookups succeed.
+
+(b) **Match case binding resolution** — when a match arm's pattern is a known variant, the bound variable is entered into `armScope` with the true resolved `FitType` (linear if the payload is a resource), not a stub. Arity checks added: no-payload+binds, linear-payload+zero-binds, and >1-binds are all errors.
+
+(c) **Arm-local linear binding check** — arm-local linear bindings are tracked in `armLinearBinds`. After `checkStmts` runs on the arm body, any binding in `armLinearBinds` that is not marked `moved` is an error. `mergeScopes` alone was insufficient because it only walks `preScope` bindings, not variables introduced inside the arm.
+
+### Before/after evidence
+
+`tests/should_fail/linear_payload_not_consumed.fit` was silently accepted before the fix. After the fix it is correctly rejected with the error: `"linear value 'c' must be consumed in match arm for 'Connected'"`.
+
+### What this makes sound
+
+One-to-many typestate transitions via enum payloads are now checker-sound. `tests/one_to_many.fit` exercises this directly: `recv` returns a `RecvResult` whose `More` variant carries `Conn<Active>` and whose `Done` variant carries `Conn<Closing>`. The match in `process` binds `c` in each arm; the checker confirms each arm consumes its linear payload. The program passes with 0 errors.
+
+### What remains open
+
+- **Match codegen is unimplemented.** `emitStmt` throws on `match`, so `one_to_many.fit` passes the checker but cannot produce running C. The checker soundness and the codegen gap are separate concerns; only the checker is addressed here.
+- **Divergent-typestate merges** — if arm A leaves `Conn<Active>` live and arm B leaves `Conn<Closing>` live and both reach the merge point, `mergeScopes` would need to report a conflict. The canonical `one_to_many.fit` avoids this by consuming the resource on every arm; the case is an escalation trigger per the spec brief, not a resolved question.
+- **Variant-name collision** — variant names must be unique across all enum declarations; a collision emits a `BuildError` (implemented alongside the enums map construction).

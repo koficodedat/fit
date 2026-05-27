@@ -20,6 +20,8 @@ export type FitType =
   | { kind: "unit"; mode: "unrestricted" }
   | { kind: "alias"; mode: "unrestricted"; name: string; members: string[] }; // member names are unresolved — look up via ResolveEnv.aliases
 
+export type VariantInfo = { enumName: string; payload: FitType | null };
+
 // name is redundant with the Map key in TypeEnv — kept so these types are self-contained
 // when passed around without their Map context.
 export type ResourceInfo = {
@@ -40,6 +42,7 @@ export type FunctionSig = {
 export type TypeEnv = {
   resources: Map<string, ResourceInfo>;
   aliases: Map<string, string[]>;
+  enums: Map<string, VariantInfo>;   // keyed by variant name (e.g. "More", "Done")
   functions: Map<string, FunctionSig>;
 };
 // ResolveEnv is the subset of TypeEnv that resolveType needs.
@@ -200,6 +203,7 @@ function inferParamModeFromBody(
 export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: BuildError[] } {
   const resources = new Map<string, ResourceInfo>();
   const aliases = new Map<string, string[]>();
+  const enums = new Map<string, VariantInfo>();
   const functions = new Map<string, FunctionSig>();
   const buildErrors: BuildError[] = [];
 
@@ -222,6 +226,23 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   // Two-pass boundary: resolveEnv excludes functions so resolveType cannot access the
   // partially-built functions map. Do NOT merge the passes.
   const resolveEnv: ResolveEnv = { resources, aliases };
+
+  // Enum resolution — payloads may reference resources, so this must follow resolveEnv construction.
+  for (const decl of program.decls) {
+    if (decl.kind === "enum") {
+      for (const variant of decl.variants) {
+        if (enums.has(variant.name)) {
+          buildErrors.push({
+            message: `variant name '${variant.name}' is already declared by enum '${enums.get(variant.name)!.enumName}'`,
+            pos: decl.pos,
+          });
+        } else {
+          const payload = variant.payload !== null ? resolveType(variant.payload, resolveEnv) : null;
+          enums.set(variant.name, { enumName: decl.name, payload });
+        }
+      }
+    }
+  }
 
   // Pass 1b: build all function signatures.
   // Externs (no body): use explicit annotation; emit BuildError for unannotated linear params.
@@ -286,5 +307,5 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
     }
   }
 
-  return { env: { resources, aliases, functions }, buildErrors };
+  return { env: { resources, aliases, enums, functions }, buildErrors };
 }

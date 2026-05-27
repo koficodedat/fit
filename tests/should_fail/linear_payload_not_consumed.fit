@@ -1,0 +1,25 @@
+// linear_payload_not_consumed.fit — should_fail
+//
+// The Connected(c) arm receives a linear Conn payload but does nothing with it.
+// Before the enum payload tracking fix, this was silently accepted.
+// After the fix, the checker correctly rejects it.
+
+resource Conn {
+    id:      ConnId,
+    cleanup: close_conn,
+}
+
+enum Response {
+    Connected(Conn),
+    Failed,
+}
+
+fn get_response() -> Response
+fn consume_conn(c: move Conn) -> ()
+
+fn test() -> () {
+    match get_response() {
+        Connected(c) => {},
+        Failed => {},
+    }
+}
