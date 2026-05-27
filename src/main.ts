@@ -1,37 +1,50 @@
 import * as fs from "fs";
 import { parse } from "./parser";
 import { check } from "./checker";
+import { codegen } from "./codegen";
 
 const [, , cmd, file] = process.argv;
 
-if (cmd !== "check" || !file) {
-  console.error("Usage: fit check <file>");
+if (!cmd || !file) {
+  console.error("Usage: fit <check|codegen> <file>");
   process.exit(1);
 }
 
 let src: string;
 try {
-  // Strip UTF-8 BOM (﻿) so editors that add it don't produce opaque parse errors
   src = fs.readFileSync(file, "utf8").replace(/^﻿/, "");
 } catch {
   console.error(`fit: cannot read '${file}'`);
   process.exit(1);
 }
 
-let errors;
+let program;
 try {
-  errors = check(parse(src, file));
+  program = parse(src, file);
 } catch (e: unknown) {
   const msg = e instanceof Error ? e.message : String(e);
   console.error(`fit: parse error in '${file}': ${msg}`);
   process.exit(1);
 }
 
-if (errors.length === 0) {
+if (cmd === "check") {
+  const errors = check(program);
+  if (errors.length === 0) process.exit(0);
+  for (const err of errors) {
+    console.error(`${file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
+  }
+  process.exit(1);
+} else if (cmd === "codegen") {
+  const errors = check(program);
+  if (errors.length > 0) {
+    for (const err of errors) {
+      console.error(`${file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
+    }
+    process.exit(1);
+  }
+  process.stdout.write(codegen(program));
   process.exit(0);
+} else {
+  console.error(`fit: unknown command '${cmd}'`);
+  process.exit(1);
 }
-
-for (const err of errors) {
-  console.error(`${file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
-}
-process.exit(1);
