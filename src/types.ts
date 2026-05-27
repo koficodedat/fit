@@ -31,7 +31,6 @@ export type ResourceInfo = {
   fallback: boolean;
 };
 export type ResolvedParam = { name: string; type_: FitType; mode: ParamMode };
-// name is redundant with the Map key in TypeEnv — kept so FunctionSig is self-contained when passed without its Map context.
 export type FunctionSig = {
   name: string;
   params: ResolvedParam[];
@@ -100,20 +99,9 @@ export function resolveType(ast: Type, env: ResolveEnv): FitType {
   }
 }
 
-// --- Body-based inference ---
-//
-// A resource parameter is classified as "move" if the function body transfers it
-// onward on any path: returned via Ok/Err, passed as a move-mode argument to another
-// function, or passed to drop().
-//
-// Known gaps (documented PoC limitations):
-// - Store-into-aggregate: `pool_add(pool, c)` is not detected as consuming `c` unless
-//   pool_add's param is already known as move. Fix: require explicit annotation on such
-//   functions.
-// - Self-recursive / mutually-recursive functions: body-scan uses placeholder lend for
-//   the function's own params during pass-2, so the recursive call appears as lend.
-//   Self-recursive functions must carry an explicit annotation. Fix: fixed-point
-//   iteration over the call graph (deferred past PoC).
+// Known body-inference gaps: store-into-aggregate (`pool_add(pool, c)`) is undetected
+// unless pool_add's param is already marked move. Self-recursive functions must use an
+// explicit annotation — body-scan sees the recursive call with placeholder lend.
 
 function exprConsumesVar(
   name: string,
@@ -122,7 +110,7 @@ function exprConsumesVar(
 ): boolean {
   switch (expr.kind) {
     case "var":
-      return false; // reading a var doesn't consume it
+      return false;
     case "call": {
       if (expr.fn === "drop") {
         return expr.args.some((a) => a.kind === "var" && a.name === name);

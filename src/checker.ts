@@ -291,7 +291,6 @@ function checkExpr(
         return { kind: "plain", mode: "unrestricted", name: "?" };
       }
 
-      // Verify all capability requirements are satisfied in the current scope
       for (const cap of sig.caps) {
         if (!caps.has(cap)) {
           errors.push({
@@ -332,7 +331,6 @@ function checkExpr(
           }
         }
       }
-      // Extra arguments beyond the declared parameter list
       for (let i = sig.params.length; i < expr.args.length; i++) {
         checkExpr(expr.args[i], scope, caps, env, errors);
         errors.push({ message: `too many arguments to '${expr.fn}'`, pos: expr.args[i].pos });
