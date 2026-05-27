@@ -1,0 +1,18 @@
+// enum_unrestricted_passthrough.fit — should_pass
+//
+// Direction is an enum with no linear payloads; it is unrestricted.
+// A let-bound value of an unrestricted enum type does not need to be consumed.
+// The scope-exit enforcer must NOT fire. 0 errors expected.
+
+enum Direction {
+    North,
+    East,
+    South,
+    West,
+}
+
+fn get_direction() -> Direction
+
+fn test() -> () {
+    let d = get_direction()
+}

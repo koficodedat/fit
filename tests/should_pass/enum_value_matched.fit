@@ -1,0 +1,25 @@
+// enum_value_matched.fit — should_pass
+//
+// Same shape as enum_value_leak.fit, but r is matched and each arm consumes its payload.
+// r is consumed by the match; inner is consumed on every arm. 0 errors expected.
+
+resource Conn {
+    cleanup: close_conn,
+}
+
+enum RecvResult {
+    More(Conn),
+    Done(Conn),
+}
+
+fn recv(c: lend Conn) -> Result<RecvResult, ()>
+fn close_conn(c: move Conn) -> ()
+
+fn process(c: lend Conn) -> Result<(), ()> {
+    let r = recv(c)?
+    match r {
+        More(inner) => { close_conn(inner) },
+        Done(inner) => { close_conn(inner) },
+    }
+    Ok(())
+}

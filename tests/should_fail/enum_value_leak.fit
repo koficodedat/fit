@@ -1,0 +1,21 @@
+// enum_value_leak.fit — should_fail
+//
+// recv(c) returns Result<RecvResult, ()>; the ? unwraps to RecvResult, a linear enum.
+// r is now a linear binding. Ok(()) is returned without matching r.
+// The scope-exit enforcer must flag: linear value 'r' must be consumed before function returns.
+
+resource Conn {
+    cleanup: close_conn,
+}
+
+enum RecvResult {
+    More(Conn),
+    Done(Conn),
+}
+
+fn recv(c: lend Conn) -> Result<RecvResult, ()>
+
+fn process(c: lend Conn) -> Result<(), ()> {
+    let r = recv(c)?
+    Ok(())
+}
