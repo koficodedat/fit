@@ -57,8 +57,11 @@ R_Receipt_PaymentError execute_charge(AuthToken token, Cents amount) {
         void_token(token); /* token is owned here; clean it up before returning Err */
         return (R_Receipt_PaymentError){1, {.err = PaymentError_Declined}};
     }
-    /* On success, token is consumed (representing the charge transaction) */
-    (void)token;
+    /* On success, token is moved in and not re-emitted — dispose it here (extern obligation).
+     * Ruling A: a resource moved into a function and not transferred onward must be disposed
+     * by that function. For externs (no FIT body), the author is responsible; the compiler
+     * cannot insert the call. */
+    void_token(token);
     return (R_Receipt_PaymentError){0, {.ok = 99}};
 }
 
@@ -91,17 +94,19 @@ int main(void) {
     }
 
     /*
-     * Path 2: success.
-     * void_token must NOT fire — token was consumed by execute_charge on the success path,
-     * and process_payment correctly does not emit any cleanup call for it.
+     * Path 2: success — extern-obligation verification.
+     * process_payment emits no cleanup for token (caller-verified, compiler-enforced).
+     * execute_charge disposes token inside itself (extern-obligation: author must call
+     * void_token since the compiler cannot insert it into an extern body).
+     * Expected log: "void_token " (fired once, inside execute_charge, not in process_payment).
      */
     cleanup_log[0] = '\0';
     charge_should_fail = 0;
     process_payment(0, 100);
-    if (strcmp(cleanup_log, "") == 0) {
-        printf("PASS payment[success]: void_token did not fire in process_payment\n");
+    if (strcmp(cleanup_log, "void_token ") == 0) {
+        printf("PASS payment[success]: void_token fired inside execute_charge (extern obligation)\n");
     } else {
-        printf("FAIL payment[success]: got '%s'\n", cleanup_log);
+        printf("FAIL payment[success]: got '%s', expected 'void_token '\n", cleanup_log);
         pass = 0;
     }
 

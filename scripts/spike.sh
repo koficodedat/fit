@@ -46,6 +46,7 @@ run_program "cleanup_scope" "tests/cleanup_scope.fit" "stubs/cleanup_scope_stubs
 run_program "cleanup_drop"  "tests/cleanup_drop.fit"  "stubs/cleanup_drop_stubs.c"
 run_program "cleanup_error" "tests/cleanup_error.fit" "stubs/cleanup_error_stubs.c"
 run_program "payment"       "tests/payment.fit"       "stubs/payment_stubs.c"
+run_program "consume_body"  "tests/consume_body.fit"  "stubs/consume_body_stubs.c"
 
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

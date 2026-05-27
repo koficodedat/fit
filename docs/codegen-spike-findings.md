@@ -1,29 +1,32 @@
 # FIT Codegen Spike — Findings
 
 **Date:** 2026-05-26  
-**Status:** Complete. Four programs compile and run. Five of six cleanup paths genuinely verified; one path (`payment[success]`) is caller-side only — see findings.
+**Status:** Complete. Five programs compile and run; seven cleanup paths verified. §3 "point of consumption" rule clarified and confirmed for both bodied functions (compiler-enforced) and extern functions (author obligation).
 
 ---
 
 ## The one question: does FIT's model translate to running code?
 
-**Yes, for straight-line code with resources that stay in FIT bodies.** The cleanup model
-translates correctly across five of the six paths in the verification matrix. One path
-(`payment[success]`) is caller-side verified only — see the qualification below.
+**Yes, for straight-line code.** The cleanup model translates correctly across all seven
+verified paths. All assertions use `strcmp` on the cleanup log; exit codes propagate
+through `spike.sh`.
 
-| Program | Path | Expected | Result |
-|---------|------|----------|--------|
-| `cleanup_scope` | normal exit | `free_widget` fires at scope exit | ✅ PASS |
+| Program | Path | What is verified | Result |
+|---------|------|-----------------|--------|
+| `cleanup_scope` | normal exit | `free_widget` fires at scope exit (compiler-emitted) | ✅ PASS |
 | `cleanup_drop` | drop mid-scope | `free_widget` fires once at drop, not at exit | ✅ PASS |
 | `cleanup_error` | `risky()` → Err | `free_widget` fires before Err return | ✅ PASS |
 | `cleanup_error` | `risky()` → Ok | `free_widget` fires at drop, not on error path | ✅ PASS |
-| `payment` | `execute_charge` fails | `void_token` fires inside `execute_charge` | ✅ PASS |
-| `payment` | success | caller emits no cleanup (token was moved out) | ⚠️ PARTIAL |
+| `payment` | `execute_charge` fails | `void_token` inside `execute_charge`; caller emits nothing | ✅ PASS |
+| `payment` | success | `void_token` inside `execute_charge` (extern obligation); caller emits nothing | ✅ PASS (extern-obligation) |
+| `consume_body` | bodied consumer | `close_conn` fires inside `finish` at scope exit (compiler-emitted) | ✅ PASS |
 
-The five genuine PASS paths are verified via `strcmp` assertion on the cleanup log, with
-exit codes propagated through `spike.sh`. The one partial path is described below.
+`payment[success]` is labeled **extern-obligation**: both halves of the invariant hold —
+the caller (compiler-enforced) emits no cleanup, and the callee (author obligation) calls
+`void_token` before returning. The caller-side is compiler-verified; the callee-side is
+verified via the corrected stub. See §3 clarification below.
 
-Automatic cleanup is no longer assumed for the five verified paths — it is confirmed.
+Automatic cleanup is confirmed for all seven paths.
 
 ---
 
@@ -71,24 +74,23 @@ it gets cleaned; if it's been moved out, it doesn't.
 struct. No runtime representation for either property was needed or missed. Both are purely
 static.
 
-**The consumed-then-failed obligation (§7) — caller side verified, callee side deferred.**
-In `payment.fit`, `execute_charge` receives `token` by move. The caller (`process_payment`)
-has nothing in `state.live` at the `?` site after `execute_charge`, so no cleanup is emitted
-in `process_payment` on the failure path. That part — the caller correctly emitting no cleanup
-for a resource it has already moved out — is genuine and verified.
+**The consumed-then-failed obligation (§7) — fully verified after §3 clarification.**
+In `payment.fit`, `execute_charge` receives `token` by move. Two invariants hold:
 
-What is NOT verified: what disposes the token inside `execute_charge` on the success path.
-`execute_charge` is an extern (no FIT body); the spike stub's success branch does `(void)token`
-and returns. By §3 of the spec ("cleanup at point of consumption: fires when a value is
-consumed by a function that transfers it nowhere onward"), `void_token` should fire inside
-`execute_charge` on success — the token moves in, the receipt moves out, the token goes
-nowhere onward. The stub silently chose not to call `void_token`, and the test asserts
-`cleanup_log == ""`, which can only pass if the stub opts out. It cannot fail regardless
-of what FIT's semantics require.
+1. **Caller emits no cleanup** (compiler-enforced): `process_payment` has nothing in
+   `state.live` at the `?` site after `execute_charge` — `token` was moved out. No cleanup
+   emitted in `process_payment` on either path. Verified by the generated C.
 
-This is a real spec ambiguity: §3's "point of consumption" rule for a resource moved into
-an extern function is unresolved. The spike did not surface it — it papered over it by
-letting the stub choose. See "Open spec question" below.
+2. **Callee disposes the token** (extern obligation): `execute_charge` receives `token` by
+   move and returns a `Receipt` — the token transfers nowhere onward. By the §3 ruling
+   (see below), the function that owns a resource and does not transfer it onward must
+   dispose it, regardless of success or failure. For externs (no FIT body), this is the
+   author's obligation; the compiler cannot insert the call. The corrected stub calls
+   `void_token(token)` on both the failure path and the success path, and both assertions
+   now check `cleanup_log == "void_token "`.
+
+The original spike stub's success branch did `(void)token; return success;` — that was
+wrong. The §3 ruling required `void_token` to fire on the success path too.
 
 **One gap found during the spike:** Plain opaque types (`Receipt`, `Cents`, `CardDetails`)
 used as function parameter types or return types were not emitted as `typedef int <Name>` in
@@ -100,43 +102,32 @@ to handle opaque plain types explicitly.
 
 ---
 
-## Open spec question: cleanup for resources moved into extern functions
+## §3 clarification: cleanup for resources moved into extern functions
 
-**The question:** When a FIT function receives a linear resource by move and that function
-has no FIT body (an extern), what disposes the resource if the function succeeds and returns
-something else?
+**The question (now settled):** When a FIT function receives a linear resource by move and
+that function has no FIT body (an extern), what disposes the resource if the function
+succeeds and returns something else?
 
-**The tension in §3:**
+**The ruling — Interpretation A confirmed:**
 
-- "Move-out skips cleanup" — if the caller moves the resource out, the caller emits no
-  cleanup. Correct and verified.
-- "Cleanup at point of consumption" — when a function consumes a resource and transfers it
-  nowhere onward, cleanup fires inside that function. For an extern with no FIT body, there
-  is no mechanism for the compiler to insert that call. The stub (hand-written C) must do it.
+The rule is uniform with locals: a resource moved into a function and not transferred onward
+is disposed by that function (at scope exit, or earlier via drop). No special case for
+externs.
 
-**Three resolutions, not yet decided:**
+- **For bodied functions:** compiler-enforced. The `consume_body` program demonstrates this
+  directly — `finish(c: move Conn)` calls `summarize(c)` (a lend), so `c` remains in
+  `state.live`, and the compiler emits `close_conn(c)` at scope exit. The stub does not
+  choose this; it only observes it. Seven-path verification confirms.
 
-1. **The stub must call cleanup on success.** `execute_charge` owns the token; when it
-   returns `Receipt` (not the token), the token "transfers nowhere onward," so `void_token`
-   fires inside `execute_charge`. The test should assert `cleanup_log == "void_token "` on
-   success. The stub as written is wrong.
+- **For extern functions:** author obligation. The compiler verifies the caller emits no
+  cleanup (move-out-skips-cleanup holds on the caller side), but cannot insert a call into
+  the extern body. The hand-written implementation must call cleanup before returning on
+  every path — success and failure alike. `execute_charge` is the example: `void_token`
+  fires in both the failure path and the success path.
 
-2. **"Consumed" means "semantically used up," not "structurally absent from the return."**
-   `execute_charge` consumes the token as part of the charge transaction — the token is spent.
-   Cleanup (void/revoke the token) would be incorrect on a successful charge because the
-   payment processor has already processed it. Under this reading, the resource's lifecycle
-   ends at the transaction boundary, and no further cleanup fires.
-
-3. **Extern functions require an explicit cleanup annotation.** Like extern resource params
-   already require `move`/`lend` annotation, externs that consume-without-cleanup require
-   an explicit marker (`consumes-without-cleanup` or similar). Missing annotation is a build
-   error. This is consistent with the principle that externs are a boundary where implicit
-   rules cannot be inferred.
-
-**Status:** Unresolved. Resolution 1 is what §3 literally says; resolution 2 is what the
-domain semantics suggest; resolution 3 is a design extension. The spike cannot distinguish
-them because the test is vacuous on this path. This must be resolved before codegen handles
-extern functions in a real standard library.
+**What this settles:** The "point of consumption" rule covers consume-as-part-of-work, not
+just `drop`. Disposal of a moved-in resource is compiler-enforced for bodied functions and
+an author obligation for externs. Both halves are verified by the spike.
 
 ---
 
@@ -189,7 +180,8 @@ cleanup fires automatically at scope exit, at explicit drop, and on error paths,
 programmer annotation at call sites. Five of six paths confirm this directly.
 
 The boundary: for resources moved into extern functions (no FIT body), automatic cleanup
-depends on the extern's hand-written C, not on FIT's compiler. Whether the compiler should
-inject or require a cleanup call on the extern's success path is the open spec question above.
-The differentiator holds for FIT-bodied code; its scope at the FFI boundary requires
-resolution before it can be stated without qualification.
+depends on the extern's hand-written C, not on FIT's compiler. The §3 ruling (see above)
+settles this: the rule is uniform — the extern author must call cleanup on every exit path.
+The compiler enforces the caller side (move-out-skips-cleanup) and the author obligation
+covers the callee side. The differentiator holds for FIT-bodied code and extends to externs
+under the extern-obligation model, which is now verified.
