@@ -46,6 +46,45 @@ function collectResultTypes(env: TypeEnv): FitType[] {
   return results;
 }
 
+// Collects all distinct plain type names used across function signatures.
+// Plain types are opaque non-resource, non-enum types (e.g. CardDetails, Cents, Receipt).
+// They are lowered to `typedef int <Name>` in the generated C.
+function collectPlainTypeNames(env: TypeEnv, program: Program): string[] {
+  const defined = new Set<string>();
+  // Resources and enums are already emitted as structs/enums — don't re-emit them.
+  for (const decl of program.decls) {
+    if (decl.kind === "resource" || decl.kind === "enum") {
+      defined.add(decl.name);
+    }
+  }
+
+  const seen = new Set<string>();
+  const names: string[] = [];
+
+  function visit(t: FitType) {
+    switch (t.kind) {
+      case "plain":
+        if (!defined.has(t.name) && !seen.has(t.name)) {
+          seen.add(t.name);
+          names.push(t.name);
+        }
+        break;
+      case "result":
+        visit(t.ok);
+        visit(t.err);
+        break;
+      default:
+        break;
+    }
+  }
+
+  for (const sig of env.functions.values()) {
+    visit(sig.returnType);
+    for (const p of sig.params) visit(p.type_);
+  }
+  return names;
+}
+
 // Entry point: compile a parsed FIT program to a C source string.
 export function codegen(program: Program): string {
   const { env } = buildTypeEnv(program);
@@ -77,6 +116,15 @@ export function codegen(program: Program): string {
       out.push(`typedef enum {\n${variants}\n} ${decl.name};`);
       out.push("");
     }
+  }
+
+  // Plain-type typedefs (opaque types used in signatures, lowered to int)
+  const plainNames = collectPlainTypeNames(env, program);
+  for (const name of plainNames) {
+    out.push(`typedef int ${name};`);
+  }
+  if (plainNames.length > 0) {
+    out.push("");
   }
 
   // Result tagged-union typedefs
