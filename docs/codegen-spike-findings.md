@@ -1,15 +1,15 @@
 # FIT Codegen Spike — Findings
 
 **Date:** 2026-05-26  
-**Status:** Complete. Five programs compile and run; seven cleanup paths verified. §3 "point of consumption" rule clarified and confirmed for both bodied functions (compiler-enforced) and extern functions (author obligation).
+**Status:** Complete. Five programs compile and run; 5 compiler-verified cleanup paths + 2 extern-boundary paths (demonstrated by correct stubs; not compiler-verifiable). §3 "point of consumption" rule clarified and confirmed for both bodied functions (compiler-enforced) and extern functions (author obligation).
 
 ---
 
 ## The one question: does FIT's model translate to running code?
 
 **Yes, for straight-line code.** The cleanup model translates correctly across all seven
-verified paths. All assertions use `strcmp` on the cleanup log; exit codes propagate
-through `spike.sh`.
+paths — five compiler-verified, two demonstrated at the extern boundary. All assertions
+use `strcmp` on the cleanup log; exit codes propagate through `spike.sh`.
 
 | Program | Path | What is verified | Result |
 |---------|------|-----------------|--------|
@@ -17,16 +17,16 @@ through `spike.sh`.
 | `cleanup_drop` | drop mid-scope | `free_widget` fires once at drop, not at exit | ✅ PASS |
 | `cleanup_error` | `risky()` → Err | `free_widget` fires before Err return | ✅ PASS |
 | `cleanup_error` | `risky()` → Ok | `free_widget` fires at drop, not on error path | ✅ PASS |
-| `payment` | `execute_charge` fails | `void_token` inside `execute_charge`; caller emits nothing | ✅ PASS |
-| `payment` | success | `void_token` inside `execute_charge` (extern obligation); caller emits nothing | ✅ PASS (extern-obligation) |
+| `payment` | `execute_charge` fails | `void_token` inside `execute_charge`; caller emits nothing | ✅ caller-verified / extern-obligation (demonstrated) |
+| `payment` | success | `void_token` inside `execute_charge` (extern obligation); caller emits nothing | ✅ caller-verified / extern-obligation (demonstrated) |
 | `consume_body` | bodied consumer | `close_conn` fires inside `finish` at scope exit (compiler-emitted) | ✅ PASS |
 
-`payment[success]` is labeled **extern-obligation**: both halves of the invariant hold —
+Both `payment` paths are labeled **caller-verified / extern-obligation (demonstrated)**:
 the caller (compiler-enforced) emits no cleanup, and the callee (author obligation) calls
-`void_token` before returning. The caller-side is compiler-verified; the callee-side is
-verified via the corrected stub. See §3 clarification below.
+`void_token` before returning on both paths. The caller-side is compiler-verified; the
+callee-side is demonstrated by a correct stub; not compiler-verifiable. See §3 clarification below.
 
-Automatic cleanup is confirmed for all seven paths.
+Automatic cleanup is compiler-verified for five paths. The two payment paths are demonstrated at the extern boundary by a correct stub; the callee side is not compiler-verifiable.
 
 ---
 
@@ -74,7 +74,7 @@ it gets cleaned; if it's been moved out, it doesn't.
 struct. No runtime representation for either property was needed or missed. Both are purely
 static.
 
-**The consumed-then-failed obligation (§7) — fully verified after §3 clarification.**
+**The consumed-then-failed obligation (§7) — caller side compiler-verified; callee side demonstrated by a correct stub; not compiler-verifiable.**
 In `payment.fit`, `execute_charge` receives `token` by move. Two invariants hold:
 
 1. **Caller emits no cleanup** (compiler-enforced): `process_payment` has nothing in
@@ -127,7 +127,8 @@ externs.
 
 **What this settles:** The "point of consumption" rule covers consume-as-part-of-work, not
 just `drop`. Disposal of a moved-in resource is compiler-enforced for bodied functions and
-an author obligation for externs. Both halves are verified by the spike.
+an author obligation for externs. The bodied-function side is compiler-verified; the
+extern-obligation side is demonstrated by a correct stub; not compiler-verifiable.
 
 ---
 
@@ -177,11 +178,12 @@ and was previously untested — the checker only verified ownership, not disposa
 
 This spike verifies the differentiator for resources that live and die inside FIT bodies:
 cleanup fires automatically at scope exit, at explicit drop, and on error paths, without
-programmer annotation at call sites. Five of six paths confirm this directly.
+programmer annotation at call sites. Five of seven paths confirm this directly (the two
+payment paths are extern-boundary, demonstrated by correct stubs; not compiler-verifiable).
 
 The boundary: for resources moved into extern functions (no FIT body), automatic cleanup
 depends on the extern's hand-written C, not on FIT's compiler. The §3 ruling (see above)
 settles this: the rule is uniform — the extern author must call cleanup on every exit path.
 The compiler enforces the caller side (move-out-skips-cleanup) and the author obligation
 covers the callee side. The differentiator holds for FIT-bodied code and extends to externs
-under the extern-obligation model, which is now verified.
+under the extern-obligation model, demonstrated by correct stubs; not compiler-verifiable.
