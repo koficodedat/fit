@@ -33,7 +33,6 @@ function checkFn(fnName: string, body: Stmt[], fnPos: Pos, env: TypeEnv, errors:
     for (const cap of sig.caps) caps.add(cap);
   }
   checkStmts(body, scope, caps, env, errors);
-  // Scope-exit enforcement: any linear binding still owned at function exit is an error.
   const exitPos: Pos = body.length > 0 ? body[body.length - 1].pos : fnPos;
   for (const [name, binding] of scope) {
     if (binding.owned && !binding.moved && binding.type_.mode === "linear") {

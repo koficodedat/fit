@@ -221,7 +221,7 @@ describe("let, rebind, and try", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 
-  it("let creates an owned binding (linear resource held without error)", () => {
+  it("let creates an owned binding — explicit drop satisfies linearity", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
@@ -339,7 +339,7 @@ describe("branch exhaustiveness", () => {
     expect(errors.some((e) => e.message.includes("'f'"))).toBe(true);
   });
 
-  it("if where linear is consumed in neither branch — no error (auto-cleanup)", () => {
+  it("if where linear is not consumed in any branch — drop after if satisfies linearity", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
