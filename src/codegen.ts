@@ -13,6 +13,8 @@ export function cTypeName(t: FitType): string {
       return t.name;
     case "alias":
       return t.name;
+    case "enum":
+      return t.name;
     case "result":
       return `R_${cTypeName(t.ok)}_${cTypeName(t.err)}`;
     default: {

@@ -46,7 +46,7 @@ describe("types module data structures", () => {
   });
 
   it("can construct a TypeEnv", () => {
-    const env: TypeEnv = { resources: new Map(), aliases: new Map(), enums: new Map(), functions: new Map() };
+    const env: TypeEnv = { resources: new Map(), aliases: new Map(), enums: new Map(), enumDecls: new Map(), functions: new Map() };
     expect(env.resources.size).toBe(0);
   });
 
@@ -69,7 +69,7 @@ describe("types module data structures", () => {
   });
 
   it("TypeEnv is structurally assignable to ResolveEnv (Pick subset relationship)", () => {
-    const full: TypeEnv = { resources: new Map(), aliases: new Map(), enums: new Map(), functions: new Map() };
+    const full: TypeEnv = { resources: new Map(), aliases: new Map(), enums: new Map(), enumDecls: new Map(), functions: new Map() };
     const narrow: ResolveEnv = full;
     expect(narrow.resources.size).toBe(0);
   });
@@ -362,7 +362,7 @@ describe("buildTypeEnv — payment.fit", () => {
     expect(sig!.params[0]).toMatchObject({ name: "card", mode: "lend" });
   });
 
-  it("validate_card: returnType ok is a resource (AuthToken), err is plain", () => {
+  it("validate_card: returnType ok is a resource (AuthToken), err is an enum (PaymentError)", () => {
     expect.assertions(4);
     const sig = env.functions.get("validate_card");
     expect(sig).toBeDefined();
@@ -370,7 +370,8 @@ describe("buildTypeEnv — payment.fit", () => {
     expect(ret.kind).toBe("result");
     if (ret.kind === "result") {
       expect(ret.ok.kind).toBe("resource");
-      expect(ret.err.kind).toBe("plain");
+      // PaymentError is an enum declaration — now correctly resolves to kind "enum"
+      expect(ret.err.kind).toBe("enum");
     }
   });
 

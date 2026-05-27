@@ -18,7 +18,10 @@ export type FitType =
     }
   | { kind: "result"; mode: "unrestricted"; ok: FitType; err: FitType }
   | { kind: "unit"; mode: "unrestricted" }
-  | { kind: "alias"; mode: "unrestricted"; name: string; members: string[] }; // member names are unresolved — look up via ResolveEnv.aliases
+  | { kind: "alias"; mode: "unrestricted"; name: string; members: string[] } // member names are unresolved — look up via ResolveEnv.aliases
+  | { kind: "enum"; mode: "linear" | "unrestricted"; name: string };
+
+export type EnumInfo = { name: string; isLinear: boolean };
 
 export type VariantInfo = { enumName: string; payload: FitType | null };
 
@@ -41,13 +44,17 @@ export type FunctionSig = {
 export type TypeEnv = {
   resources: Map<string, ResourceInfo>;
   aliases: Map<string, string[]>;
-  enums: Map<string, VariantInfo>;   // keyed by variant name (e.g. "More", "Done")
+  enums: Map<string, VariantInfo>;       // keyed by variant name (e.g. "More", "Done")
+  enumDecls: Map<string, EnumInfo>;      // keyed by enum name
   functions: Map<string, FunctionSig>;
 };
-// ResolveEnv is the subset of TypeEnv that resolveType needs.
+// ResolveEnv is the subset of TypeEnv that resolveType needs during the enum loop.
 // Using Pick here prevents resolveType from accidentally reading a partially-built
 // functions map during buildTypeEnv's two-pass construction.
 export type ResolveEnv = Pick<TypeEnv, "resources" | "aliases">;
+// WideResolveEnv extends ResolveEnv with enumDecls — used after the enum loop so that
+// enum names in function param/return types resolve to { kind: "enum" } instead of plain.
+export type WideResolveEnv = Pick<TypeEnv, "resources" | "aliases" | "enumDecls">;
 
 // Errors emitted during type-environment construction (e.g. missing annotation on
 // extern linear param). Structurally identical to CheckError in checker.ts so they
@@ -57,7 +64,7 @@ export type BuildError = { message: string; pos: Pos };
 // Recursion depth is bounded by the nesting depth of the Type AST.
 // Pathologically deep types (e.g. 10k-nested Result) can overflow the JS call stack.
 // For the PoC this is acceptable — all source files are trusted.
-export function resolveType(ast: Type, env: ResolveEnv): FitType {
+export function resolveType(ast: Type, env: ResolveEnv | WideResolveEnv): FitType {
   switch (ast.kind) {
     case "unit":
       return { kind: "unit", mode: "unrestricted" };
@@ -89,6 +96,16 @@ export function resolveType(ast: Type, env: ResolveEnv): FitType {
       const alias = env.aliases.get(ast.name);
       if (alias) {
         return { kind: "alias", mode: "unrestricted", name: ast.name, members: alias };
+      }
+      if ("enumDecls" in env) {
+        const enumDecl = env.enumDecls.get(ast.name);
+        if (enumDecl) {
+          return {
+            kind: "enum",
+            mode: enumDecl.isLinear ? "linear" : "unrestricted",
+            name: ast.name,
+          };
+        }
       }
       return { kind: "plain", mode: "unrestricted", name: ast.name };
     }
@@ -192,6 +209,7 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   const resources = new Map<string, ResourceInfo>();
   const aliases = new Map<string, string[]>();
   const enums = new Map<string, VariantInfo>();
+  const enumDecls = new Map<string, EnumInfo>();
   const functions = new Map<string, FunctionSig>();
   const buildErrors: BuildError[] = [];
 
@@ -216,8 +234,11 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   const resolveEnv: ResolveEnv = { resources, aliases };
 
   // Enum resolution — payloads may reference resources, so this must follow resolveEnv construction.
+  // Uses narrow resolveEnv (payloads cannot circularly reference their own enum's linear flag).
+  // Also populates enumDecls: an enum is linear iff any non-colliding variant has a linear payload.
   for (const decl of program.decls) {
     if (decl.kind === "enum") {
+      let isLinear = false;
       for (const variant of decl.variants) {
         if (enums.has(variant.name)) {
           buildErrors.push({
@@ -227,20 +248,27 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
         } else {
           const payload = variant.payload !== null ? resolveType(variant.payload, resolveEnv) : null;
           enums.set(variant.name, { enumName: decl.name, payload });
+          if (payload !== null && payload.mode === "linear") isLinear = true;
         }
       }
+      enumDecls.set(decl.name, { name: decl.name, isLinear });
     }
   }
+
+  // Wide resolve env: includes enumDecls so function param/return types named after enums
+  // resolve to { kind: "enum" } rather than plain. Used from here on.
+  const wideResolveEnv: WideResolveEnv = { resources, aliases, enumDecls };
 
   // Pass 1b: build all function signatures.
   // Externs (no body): use explicit annotation; emit BuildError for unannotated linear params.
   // Bodied functions: use explicit annotation if present; otherwise placeholder lend
   //   (pass-2 will re-infer by body inspection).
+  // Uses wideResolveEnv so enum names in return/param types resolve to { kind: "enum" }.
   for (const decl of program.decls) {
     if (decl.kind === "fn") {
-      const returnType = resolveType(decl.returnType, resolveEnv);
+      const returnType = resolveType(decl.returnType, wideResolveEnv);
       const params: ResolvedParam[] = decl.params.map((p) => {
-        const type_ = resolveType(p.type_, resolveEnv);
+        const type_ = resolveType(p.type_, wideResolveEnv);
         let mode: ParamMode;
         if (type_.kind === "resource") {
           if (p.annotatedMode !== null) {
@@ -295,5 +323,5 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
     }
   }
 
-  return { env: { resources, aliases, enums, functions }, buildErrors };
+  return { env: { resources, aliases, enums, enumDecls, functions }, buildErrors };
 }

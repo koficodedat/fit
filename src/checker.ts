@@ -124,8 +124,9 @@ function checkStmt(
       const subjectType = checkExpr(stmt.expr, scope, caps, env, errors);
       // Only enforce unknown-variant errors when the subject is a declared enum.
       // Extern/unresolved return types fall back to stubs silently.
+      // Accept both "plain" (pre-enumDecls env) and "enum" (post-enumDecls env, Task 55).
       const subjectIsKnownEnum =
-        subjectType.kind === "plain" &&
+        (subjectType.kind === "plain" || subjectType.kind === "enum") &&
         [...env.enums.values()].some((v) => v.enumName === subjectType.name);
 
       const branchScopes: Scope[] = [];
