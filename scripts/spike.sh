@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # spike.sh — FIT codegen spike: emit C, compile, run, verify cleanup behavior
-set -e
 
 cd "$(dirname "$0")/.."
 
 FIT="npx ts-node src/main.ts"
 CC="${CC:-cc}"
 TMP=$(mktemp -d)
+trap "rm -rf $TMP" EXIT
 PASS=0
 FAIL=0
 
@@ -18,10 +18,20 @@ run_program() {
     echo "--- $name ---"
 
     # Step 1: emit C from FIT source
-    $FIT codegen "$fit_file" > "$TMP/${name}.c"
+    if ! $FIT codegen "$fit_file" > "$TMP/${name}.c"; then
+        echo "  FAIL: codegen error"
+        FAIL=$((FAIL + 1))
+        echo ""
+        return
+    fi
 
     # Step 2: compile generated C + stubs
-    $CC "$TMP/${name}.c" "$stubs_file" -o "$TMP/${name}" -std=c11 -Wall -Wno-unused-value
+    if ! $CC "$TMP/${name}.c" "$stubs_file" -o "$TMP/${name}" -std=c11 -Wall -Wno-unused-value; then
+        echo "  FAIL: compile error"
+        FAIL=$((FAIL + 1))
+        echo ""
+        return
+    fi
 
     # Step 3: run and report
     if "$TMP/${name}"; then
