@@ -76,7 +76,8 @@ to handle opaque plain types explicitly.
 
 The codegen spike does not resolve any of the known PoC limitations:
 - **Match / enum payload types** — not implemented; the four spike programs avoid match.
-- **loop / if / rebind** — `emitStmt` throws on loop and if; the spike programs don't use them.
+- **loop / if** — `emitStmt` throws on these; the spike programs don't use them.
+- **rebind** — implemented in `emitStmt` but not exercised by any spike program.
 - **Self-recursive inference** — bodied functions with self-recursive consumption still need
   explicit annotation; unchanged from the checker.
 
