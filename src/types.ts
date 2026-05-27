@@ -208,7 +208,7 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
     } else if (decl.kind === "type_alias") {
       aliases.set(decl.name, [...decl.members]); // defensive copy
     }
-    // capability, record, enum decls are intentionally ignored in pass 1a.
+    // capability and record decls are ignored; enums are handled in the dedicated loop below.
   }
 
   // Two-pass boundary: resolveEnv excludes functions so resolveType cannot access the
