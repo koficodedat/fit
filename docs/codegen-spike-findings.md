@@ -24,24 +24,36 @@ Automatic cleanup is no longer assumed — it is verified.
 
 ---
 
-## Architecture decision: option (b) — checker's analysis drives cleanup
+## Architecture: partial option (b) — classification shared, liveness re-walked
 
-The checker's settled TypeEnv was sufficient. Codegen did not re-derive move/lend modes
-or ownership — it consumed them from `buildTypeEnv`'s output. The `FunctionSig.params[i].mode`
-field already encodes whether each callee parameter is `move` or `lend`, which is exactly
-what codegen needs to decide whether to remove a var from `state.live` when building a call.
+The original brief framed a binary choice: option (a) (codegen recomputes ownership
+independently) vs option (b) (checker emits a cleanup schedule; codegen consumes it). The
+actual result is a hybrid.
 
-**What the checker provides that codegen uses:**
-- `param.mode === "move"` → remove arg from `state.live` before emitting `?` error check
-- `resource.cleanup` → the C function name to call for each owned var
-- `sig.returnType` → used to construct the error-branch return struct at each `?` site
+**What is genuinely shared with the checker (option b):**
+- `param.mode === "move" | "lend"` — read from `env.functions.get(fn).params[i].mode`.
+  Codegen does not re-inspect function bodies to determine calling convention; it reads the
+  checker's pre-computed, frozen answer.
+- `resource.cleanup` — the C cleanup function name comes from the TypeEnv's resource info,
+  not guessed from naming conventions.
+- `sig.returnType` — used to construct the error-branch return struct at each `?` site.
 
-**What codegen adds on top:**
-- `state.live: LiveVar[]` — a declaration-order list of currently-owned resources, mutated as
-  vars are consumed (move calls, drop, Ok/Err wrapping) and appended when let-bindings introduce resources
-- Reverse-order emission at scope exit and `?` sites
+**What codegen re-walks independently (option a):**
+- `state.live: LiveVar[]` — a declaration-order list of currently-owned resources. Codegen
+  maintains this by walking the function body a second time, mutating `live` as variables
+  are consumed (move calls, drop, Ok/Err wrapping) or introduced (let-bindings).
+- Cleanup is emitted based on `state.live` at each exit point — scope exit, `?` error
+  branch — not from a schedule the checker produced.
 
-The checker and codegen share the same underlying ownership model. They do not diverge.
+**Why this is accurate for straight-line code, and where it becomes a risk:**
+
+For straight-line code (no branches, no loops), the checker's ownership walk and codegen's
+independent walk trivially produce the same result at every exit point. All four spike
+programs are straight-line. For control flow with branches or loops, the checker uses
+`mergeScopes` to join ownership state at branch exits — codegen's independent walk would
+have to mirror that join logic exactly, or the two diverge and cleanup gets placed wrong
+(leak or double-free) on the paths branches create. That duplication is the real architectural
+risk the spike surfaced, not a weakness in FIT's model.
 
 ---
 
@@ -72,16 +84,42 @@ to handle opaque plain types explicitly.
 
 ---
 
-## Remaining gaps (unchanged from poc-findings.md)
+## The fifth program: confirming the branch boundary
 
-The codegen spike does not resolve any of the known PoC limitations:
-- **Match / enum payload types** — not implemented; the four spike programs avoid match.
-- **loop / if** — `emitStmt` throws on these; the spike programs don't use them.
+To probe whether the second ownership walk would diverge at a branch, a fifth program was
+written post-spike: a resource declared before an `if/else`, consumed on both branches
+(symmetric, so the checker accepts it), with no `drop` after the branch (resource is gone).
+
+```
+fn run() -> () {
+    let w = make_widget()
+    if get_choice() {
+        consume_widget(w)   // move — both branches consume
+    } else {
+        consume_widget(w)   // move
+    }
+    // w is no longer live; no cleanup at scope exit
+}
+```
+
+Checker: exit 0 (symmetric consumption is valid).
+Codegen: `Error: codegen spike: unsupported stmt kind 'if'`
+
+The question of divergence is currently moot — `emitStmt` has no `if` case at all. The
+branch boundary is explicit rather than implied. When `if` support is added to codegen,
+it will need to mirror `mergeScopes` from the checker to handle ownership state at join
+points correctly. That is the next real risk, and it is confirmed unimplemented, not
+merely unverified.
+
+## Remaining gaps
+
+- **Match / enum payload types** — not implemented in codegen; spike programs avoid match.
+- **loop / if** — `emitStmt` throws on these; the five programs expose `if` as the boundary.
 - **rebind** — implemented in `emitStmt` but not exercised by any spike program.
-- **Self-recursive inference** — bodied functions with self-recursive consumption still need
-  explicit annotation; unchanged from the checker.
-
-These are post-spike work, not findings about the cleanup model.
+- **Self-recursive inference** — unchanged from the checker; explicit annotation required.
+- **Liveness at branch joins** — when `if`/`match` support is added to codegen, it must
+  mirror `mergeScopes` from the checker; otherwise the two ownership walks diverge on
+  branching paths. This is the architectural risk the spike surfaced.
 
 ---
 
