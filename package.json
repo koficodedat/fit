@@ -7,7 +7,8 @@
     "build": "tsc",
     "lint": "eslint src/ tests/",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\"",
+    "spike": "bash scripts/spike.sh"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
