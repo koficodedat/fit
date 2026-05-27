@@ -227,6 +227,7 @@ describe("let, rebind, and try", () => {
       fn make_foo() -> Foo
       fn test() -> () {
         let f = make_foo()
+        drop(f)
       }
     `;
     expect(check(parse(src, "test.fit"))).toEqual([]);
@@ -348,6 +349,7 @@ describe("branch exhaustiveness", () => {
         if cond() {
         } else {
         }
+        drop(f)
       }
     `;
     expect(check(parse(src, "test.fit"))).toEqual([]);

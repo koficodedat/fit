@@ -12,13 +12,13 @@ export function check(program: Program): CheckError[] {
   const errors: CheckError[] = [...buildErrors];
   for (const decl of program.decls) {
     if (decl.kind === "fn" && decl.body !== null) {
-      checkFn(decl.name, decl.body, env, errors);
+      checkFn(decl.name, decl.body, decl.pos, env, errors);
     }
   }
   return errors;
 }
 
-function checkFn(fnName: string, body: Stmt[], env: TypeEnv, errors: CheckError[]): void {
+function checkFn(fnName: string, body: Stmt[], fnPos: Pos, env: TypeEnv, errors: CheckError[]): void {
   const scope: Scope = new Map();
   const caps: CapScope = new Set();
   const sig = env.functions.get(fnName);
@@ -33,6 +33,16 @@ function checkFn(fnName: string, body: Stmt[], env: TypeEnv, errors: CheckError[
     for (const cap of sig.caps) caps.add(cap);
   }
   checkStmts(body, scope, caps, env, errors);
+  // Scope-exit enforcement: any linear binding still owned at function exit is an error.
+  const exitPos: Pos = body.length > 0 ? body[body.length - 1].pos : fnPos;
+  for (const [name, binding] of scope) {
+    if (binding.owned && !binding.moved && binding.type_.mode === "linear") {
+      errors.push({
+        message: `linear value '${name}' must be consumed before function returns`,
+        pos: exitPos,
+      });
+    }
+  }
 }
 
 function checkStmts(
@@ -122,6 +132,10 @@ function checkStmt(
 
     case "match": {
       const subjectType = checkExpr(stmt.expr, scope, caps, env, errors);
+      // Consume linear scrutinee — match takes ownership.
+      if (stmt.expr.kind === "var" && subjectType.mode === "linear") {
+        consumeBinding(stmt.expr.name, scope, errors, stmt.expr.pos);
+      }
       // Only enforce unknown-variant errors when the subject is a declared enum.
       // Extern/unresolved return types fall back to stubs silently.
       // Accept both "plain" (pre-enumDecls env) and "enum" (post-enumDecls env, Task 55).
