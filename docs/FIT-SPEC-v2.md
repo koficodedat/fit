@@ -127,6 +127,17 @@ linear types that declare cleanup (§2.3). All three are reserved; rejected syno
   whose body transfers nothing onward; cleanup fires immediately. No special mechanism —
   this follows directly from "move-out skips cleanup" and "auto-fires for still-owned
   values."
+  **[OPEN — codegen spike 2026-05-26]** This rule is clear when the consuming function has
+  a FIT body (the compiler can insert the cleanup call). It is unresolved for extern functions
+  (no FIT body) that receive a resource by move and return something else on success — e.g.,
+  `execute_charge(token: move AuthToken, ...) -> Result<Receipt, E>`. On success, the token
+  transfers nowhere onward, so §3 literally requires cleanup to fire inside `execute_charge`.
+  But the compiler has no body to insert into, and calling cleanup on a successfully-charged
+  token may be semantically wrong (domain semantics vs type-system semantics). Three
+  resolutions are under consideration: (1) the extern's hand-written C must call cleanup on
+  success; (2) "consumed" for externs means "semantically used up," and no cleanup fires;
+  (3) externs that consume-without-cleanup require an explicit annotation. Unresolved; must
+  be decided before codegen handles externs in a real standard library.
 - **Cleanup must be infallible.** It cannot itself fail or there's no answer to "what cleans
   up the cleanup."
 - **[AMENDED] Fallible teardown — two-phase pattern (O9, resolved-and-deferred).**
