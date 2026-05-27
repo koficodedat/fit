@@ -212,10 +212,13 @@ Three pieces were required:
 
 ### What this makes sound
 
-One-to-many typestate transitions via enum payloads are now checker-sound. `tests/one_to_many.fit` exercises this directly: `recv` returns a `RecvResult` whose `More` variant carries `Conn<Active>` and whose `Done` variant carries `Conn<Closing>`. The match in `process` binds `c` in each arm; the checker confirms each arm consumes its linear payload. The program passes with 0 errors.
+One-to-many typestate transitions via enum payloads are now checker-sound **through the match**. `tests/one_to_many.fit` exercises this directly: `recv` returns a `RecvResult` whose `More` variant carries `Conn<Active>` and whose `Done` variant carries `Conn<Closing>`. The match in `process` binds `c` in each arm; the checker confirms each arm consumes its linear payload. The program passes with 0 errors.
+
+The soundness guarantee is scoped to in-match consumption. Once the match fires and binds a payload variable, that variable is tracked as linear and must be consumed. The hole one let away: the enum value itself (`let r = recv(c)?`) is a plain, unrestricted type — the checker does not track `r` as linear. If `r` is never matched, it leaks silently with no error.
 
 ### What remains open
 
+- **Enum-linearity propagation** — enum values carrying linear payloads are not themselves linear. A named, unconsumed enum binding (`let r = get_response()` followed by no match) leaks undetected. Closing this gap would require the enum type to propagate the linearity of its most-linear payload variant, which is a non-trivial type-system extension. Logged as the next gap.
 - **Match codegen is unimplemented.** `emitStmt` throws on `match`, so `one_to_many.fit` passes the checker but cannot produce running C. The checker soundness and the codegen gap are separate concerns; only the checker is addressed here.
 - **Divergent-typestate merges** — if arm A leaves `Conn<Active>` live and arm B leaves `Conn<Closing>` live and both reach the merge point, `mergeScopes` would need to report a conflict. The canonical `one_to_many.fit` avoids this by consuming the resource on every arm; the case is an escalation trigger per the spec brief, not a resolved question.
 - **Variant-name collision** — variant names must be unique across all enum declarations; a collision emits a `BuildError` (implemented alongside the enums map construction).

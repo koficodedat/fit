@@ -1317,6 +1317,25 @@ describe("enum payload tracking", () => {
     const errors = check(parse(src, "test.fit"));
     expect(errors.some((e) => e.message.includes("linear payload") && e.message.includes("Wrapped"))).toBe(true);
   });
+
+  it("fresh-named linear payload consumed — armLinearBinds clears on move, not by shadow coincidence", () => {
+    // payload_conn is not present anywhere in the outer scope; this rules out the
+    // possibility that the check passes because a shadowed outer binding happened to
+    // be moved already.
+    const src = `
+      resource Conn { cleanup: close_conn }
+      enum Response { Active(Conn), Closed(Conn) }
+      fn get_response() -> Response
+      fn take_conn(payload_conn: move Conn) -> ()
+      fn test() -> () {
+        match get_response() {
+          Active(payload_conn) => { take_conn(payload_conn) },
+          Closed(payload_conn) => { take_conn(payload_conn) },
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
 });
 
 describe("edge cases", () => {
