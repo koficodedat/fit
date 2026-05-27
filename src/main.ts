@@ -3,6 +3,12 @@ import { parse } from "./parser";
 import { check } from "./checker";
 import { codegen } from "./codegen";
 
+function printErrors(file: string, errors: { pos: { line: number; col: number }; message: string }[]): void {
+  for (const err of errors) {
+    console.error(`${file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
+  }
+}
+
 const [, , cmd, file] = process.argv;
 
 if (!cmd || !file) {
@@ -30,16 +36,12 @@ try {
 if (cmd === "check") {
   const errors = check(program);
   if (errors.length === 0) process.exit(0);
-  for (const err of errors) {
-    console.error(`${file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
-  }
+  printErrors(file, errors);
   process.exit(1);
 } else if (cmd === "codegen") {
   const errors = check(program);
   if (errors.length > 0) {
-    for (const err of errors) {
-      console.error(`${file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
-    }
+    printErrors(file, errors);
     process.exit(1);
   }
   process.stdout.write(codegen(program));

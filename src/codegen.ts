@@ -107,7 +107,7 @@ export function codegen(program: Program): string {
     }
   }
 
-  return out.join("\n");
+  return out.join("\n") + "\n";
 }
 
 function emitExternDecl(
