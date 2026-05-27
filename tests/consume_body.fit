@@ -1,0 +1,16 @@
+resource Conn {
+    fd:      Fd,
+    cleanup: close_conn,
+}
+
+fn make_conn() -> Conn
+fn summarize(c: lend Conn) -> ()
+
+fn finish(c: move Conn) -> () {
+    summarize(c)
+}
+
+fn run() -> () {
+    let c = make_conn()
+    finish(c)
+}
