@@ -107,6 +107,7 @@ The "second pillar" hypothesis is answered: it does not emerge naturally for HTT
 | **Globally unique enum variant names** (new — not in poc-findings.md) | server.fit | Renamed `BrokenPipe` → `NetBrokenPipe`, `NotFound` → `HttpNotFound`; noted as post-PoC design question |
 | Field access not supported | server.fit | Used `request_path(req)` free-function accessor |
 | Parameterized resource types as field types unsupported | http.fit | Used `sock: TcpSocket` (un-parameterized) |
+| **`?` error type compatibility not enforced** (new — not in poc-findings.md) | server.fit | `serve_request` mixes `IoError` and `HttpError` under `?`; checker accepted this silently. Fix: added `type ServerError = IoError \| HttpError \| NetError` union alias and updated `serve_request`/`main` return types to `Result<(), ServerError>` for semantic correctness. |
 
 ---
 

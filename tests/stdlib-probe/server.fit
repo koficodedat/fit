@@ -39,6 +39,8 @@ resource HttpConn {
 
 enum HttpError { BadRequest, HttpNotFound, InternalError }
 
+type ServerError = IoError | HttpError | NetError
+
 record ParsedRequest {
     method: String,
     path:   String,
@@ -62,7 +64,7 @@ fn http_force_close(conn: move HttpConn) -> ()
 
 // ── End-to-end program ────────────────────────────────────────────────────────
 
-fn serve_request(conn: lend HttpConn) using Net, Fs -> Result<(), HttpError> {
+fn serve_request(conn: lend HttpConn) using Net, Fs -> Result<(), ServerError> {
     let req     = http_receive(conn)?
     let req     = validate(req)?
     let path    = request_path(req)
@@ -74,7 +76,7 @@ fn serve_request(conn: lend HttpConn) using Net, Fs -> Result<(), HttpError> {
     Ok(())
 }
 
-fn main() using Net, Fs -> Result<(), HttpError> {
+fn main() using Net, Fs -> Result<(), ServerError> {
     let conn = http_accept()?
     serve_request(conn)?
     http_close(conn)?
