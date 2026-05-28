@@ -108,7 +108,17 @@ The "second pillar" hypothesis is answered: it does not emerge naturally for HTT
 | **Globally unique enum variant names** (new — not in poc-findings.md) | server.fit | Renamed `BrokenPipe` → `NetBrokenPipe`, `NotFound` → `HttpNotFound`; noted as post-PoC design question |
 | Field access not supported | server.fit | Used `request_path(req)` free-function accessor |
 | Parameterized resource types as field types unsupported | http.fit | Used `sock: TcpSocket` (un-parameterized) |
-| **`?` error type compatibility not enforced** (new — not in poc-findings.md) | server.fit | `serve_request` mixes `IoError` and `HttpError` under `?`; checker accepted this silently. Fix: added `type ServerError = IoError \| HttpError \| NetError` union alias and updated `serve_request`/`main` return types to `Result<(), ServerError>` for semantic correctness. |
+| **`?` error type compatibility** — now enforced (§7) | server.fit | Before: checker silently accepted mixed error types. After: `errorTypeCompatible` helper + `enclosingErr` threading enforces the §7 rule. `try_incompatible_error.fit` is the before/after flip: 0 errors → 1 error. `server.fit` continues to pass because `type ServerError = IoError \| HttpError \| NetError` makes all `?` sites flat-member compliant. |
+
+### Note on `?` error-type enforcement scope
+
+The §7 enforcement closes one gap and leaves two named open questions:
+
+**What it closes:** `e?` is now rejected at compile time when `e`'s error type is neither equal to nor a flat member of the enclosing function's declared error type. The §7 audit-surface claim — "no `NetError` in the union → provably cannot fail by network" — is now enforced, not just intended.
+
+**What it does NOT close:**
+- **Nested-union widening.** `type Outer = Inner | Z` where `Inner` is itself an alias — membership is checked by flat string comparison against `alias.members`, so `X` (a member of `Inner`) is not seen as a member of `Outer`. Whether `?` widening should expand nested aliases transitively is a §7 design question that §7 did not settle. Escalation-deferred.
+- **The broader alias-expansion question.** Whether FIT's error model should ever require alias expansion (and at what points) is an open design question separate from this fix.
 
 ---
 

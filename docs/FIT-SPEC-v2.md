@@ -305,6 +305,17 @@ cases — straight-line, plain-loop, recursive-drain — together.)*
   explicit conversion. **This is untested against real programs; if implicit widening proves
   ambiguous in practice, explicit wrapping at each `?` site is the fallback.**
 
+**Implementation note (PoC, 2026-05-28):** The `?` compatibility rule is now enforced. `e?` is legal iff:
+
+1. The error type of `e` equals the enclosing function's declared error type (same name), OR
+2. The enclosing function's error type is a named union alias and the error type of `e` is a flat member of that alias (string-membership against `alias.members`).
+
+Nested-alias expansion (where a member is itself an alias) is **not** implemented — it would require alias-resolution beyond the current flat-member model. Whether `?` widening should see through nested aliases is a deferred design question. All current programs use flat unions (leaf enums as members), so flat membership is correct and sufficient.
+
+Error messages:
+- `cannot propagate error type 'X' — not a member of 'Y' declared by 'fn'`
+- `'?' in a function that does not return Result`
+
 ---
 
 ## 8. Functional discipline (locked principle)
