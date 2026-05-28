@@ -1579,7 +1579,7 @@ describe("? error-type compatibility (§7)", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 
-  it("member-of-union: IoError in ServerError alias is accepted", () => {
+  it("member-of-union: IoError in AppError alias is accepted", () => {
     const src = `
       enum IoError { NotFound }
       enum HttpError { BadRequest }

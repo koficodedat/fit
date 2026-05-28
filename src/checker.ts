@@ -243,10 +243,16 @@ function checkStmt(
   }
 }
 
-function errorTypeCompatible(propagated: FitType, declared: FitType, _env: TypeEnv): boolean {
-  // Structural equality for unit types
+function errorTypeCompatible(
+  propagated: FitType,
+  declared: FitType,
+  _env: TypeEnv // reserved for nested-alias expansion (deferred design question)
+): boolean {
+  // Structural equality for unit types (e.g. Result<X, ()> propagated into Result<Y, ()>)
   if (propagated.kind === "unit" && declared.kind === "unit") return true;
   const pName = "name" in propagated ? propagated.name : null;
+  // dName is used only for the equality check below; alias-membership uses declared.members
+  // directly — comparing pName === declared.name would check alias name, not membership.
   const dName = "name" in declared ? declared.name : null;
   // Equality: same named type on both sides
   if (pName !== null && pName === dName) return true;
@@ -378,6 +384,8 @@ function checkExpr(
 
     case "try": {
       const innerType = checkExpr(expr.expr, scope, caps, env, enclosingErr, errors);
+      // Check expression-level first: if the inner expression isn't a Result at all,
+      // the enclosingErr check is moot and would produce a confusing second error.
       if (innerType.kind !== "result") {
         errors.push({ message: `'?' applied to non-Result type`, pos: expr.pos });
         return { kind: "plain", mode: "unrestricted", name: "?" };
