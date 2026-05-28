@@ -270,7 +270,7 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
       const params: ResolvedParam[] = decl.params.map((p) => {
         const type_ = resolveType(p.type_, wideResolveEnv);
         let mode: ParamMode;
-        if (type_.kind === "resource") {
+        if (type_.mode === "linear") {
           if (p.annotatedMode !== null) {
             // Explicit annotation — used for both externs and bodied functions.
             mode = p.annotatedMode;
@@ -312,7 +312,7 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
       for (let i = 0; i < sig.params.length; i++) {
         const param = sig.params[i];
         const astParam = decl.params[i];
-        if (param.type_.kind === "resource" && astParam.annotatedMode === null) {
+        if (param.type_.mode === "linear" && astParam.annotatedMode === null) {
           // No explicit annotation: infer from body using current function map.
           // Callee modes are already settled (externs from pass-1b; earlier bodied
           // functions updated in-place by prior iterations of this loop).
