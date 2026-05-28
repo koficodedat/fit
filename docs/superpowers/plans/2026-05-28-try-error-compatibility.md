@@ -14,8 +14,8 @@
 
 - `src/checker.ts:21` — `checkFn`: seeds scope and caps; does NOT currently extract enclosing error type
 - `src/checker.ts:47` — `checkStmts`: forwards to `checkStmt`; no `enclosingErr` param
-- `src/checker.ts:59` — `checkStmt`: 17 call sites inside it that need `enclosingErr` added
-- `src/checker.ts:242` — `checkExpr`: 8 recursive call sites; `try` case at line 360 is the enforcement point
+- `src/checker.ts:59` — `checkStmt`: 9 call sites inside it that need `enclosingErr` added
+- `src/checker.ts:242` — `checkExpr`: 8 recursive call sites inside it; `try` case at line 360 is the enforcement point. (9 + 8 = 17 total call sites across both functions)
 - `src/checker.ts:360–368` — current `try` case: discards `innerType.err`, no enclosing-type check
 - `src/types.ts:9–22` — `FitType` union: `alias` has `name: string; members: string[]` (member names are **unresolved strings**, not expanded)
 - `src/types.ts:21` — comment: "member names are unresolved — look up via ResolveEnv.aliases" — flat string-membership is correct and sufficient for this fix
@@ -64,7 +64,7 @@ fn serve() -> Result<(), HttpError> {
 }
 ```
 
-This is the before/after flip file: currently accepted (0 errors), must be rejected after the fix with `cannot propagate error type 'IoError' — not a member of 'HttpError' declared by enclosing function`.
+This is the before/after flip file: currently accepted (0 errors), must be rejected after the fix with `cannot propagate error type 'IoError' — not a member of 'HttpError' declared by 'fn'`.
 
 - [ ] **Step 2: Write `tests/should_fail/try_no_result_fn.fit`**
 
@@ -120,18 +120,18 @@ Propagated error type (`ApiError`) equals declared error type (`ApiError`). Must
 npm --prefix /Users/kofi/_/fit test 2>&1 | tail -15
 ```
 
-Expected output:
+Expected output — the suite will FAIL at this point (that is the correct baseline):
 ```
-PASS tests/suite.test.ts
+FAIL tests/suite.test.ts
   should_fail
-    ✓ try_incompatible_error.fit produces at least one error    ← WRONG: will show ✗ (0 errors)
-    ✓ try_no_result_fn.fit produces at least one error          ← WRONG: will show ✗ (0 errors)
+    ✗ try_incompatible_error.fit produces at least one error
+    ✗ try_no_result_fn.fit produces at least one error
   should_pass
     ✓ try_member_of_union.fit produces no errors
     ✓ try_equal_error.fit produces no errors
 ```
 
-The two `should_fail` files produce 0 errors (incorrectly accepted). That is the failing test baseline — exactly the gap the fix must close. The two `should_pass` files already pass correctly.
+The two `should_fail` files show `✗` because they produce 0 errors when the test expects ≥1. That is the correct failing baseline — it proves the gap exists. The two `should_pass` files already pass. Task 2 must turn the two `✗` into `✓`.
 
 - [ ] **Step 6: Commit the test programs**
 
@@ -562,7 +562,7 @@ function checkExpr(
         const propagatedName = "name" in innerType.err ? innerType.err.name : "?";
         const declaredName = "name" in enclosingErr ? enclosingErr.name : "?";
         errors.push({
-          message: `cannot propagate error type '${propagatedName}' — not a member of '${declaredName}' declared by enclosing function`,
+          message: `cannot propagate error type '${propagatedName}' — not a member of '${declaredName}' declared by 'fn'`,
           pos: expr.pos,
         });
       }
@@ -581,6 +581,8 @@ function checkExpr(
 The only semantic change is the `try` case (new `enclosingErr` check). All other cases are unchanged except threading `enclosingErr` through recursive calls.
 
 - [ ] **Step 6: Run the full test suite**
+
+**Escalation trigger — check before running:** If during implementation you discovered that any of the four test programs requires a *nested* alias (e.g., a member of `ServerError` is itself an alias like `type Inner = X | Y`) to typecheck correctly, **STOP HERE and escalate** rather than extending `errorTypeCompatible` to expand nested aliases. Whether `?` widening should see through nested aliases is a §7 design question that §7 did not settle. Report which program needs it and what the two options are (expand aliases transitively vs. require flat unions). This is a design-authority call. If all four test programs typecheck correctly with flat membership only, proceed.
 
 ```bash
 npm --prefix /Users/kofi/_/fit test 2>&1 | tail -20
@@ -685,9 +687,7 @@ If `server.fit` fails here, STOP — do not commit. Diagnose the failure; it is 
 - [ ] **Step 10: Commit the implementation**
 
 ```bash
-cd /Users/kofi/_/fit
-npm run build 2>&1 | tail -5
-git add src/checker.ts tests/checker.test.ts
+git -C /Users/kofi/_/fit add src/checker.ts tests/checker.test.ts
 git commit -m "feat(checker): enforce ? error-type compatibility per §7
 
 The try case now threads enclosingErr (the enclosing function's declared
@@ -712,21 +712,53 @@ rejected. server.fit still passes (ServerError union covers all sites)."
 - Modify: `docs/stdlib-probe-findings.md`
 - Modify: `docs/FIT-SPEC-v2.md`
 
-- [ ] **Step 1: Add before/after note to `docs/stdlib-probe-findings.md`**
+- [ ] **Step 1: Add before/after note, flat-union limitation, and "what this fix does NOT close" to `docs/stdlib-probe-findings.md`**
 
-Find the `? error type compatibility not enforced` row in the PoC limitations table and update the Workaround column:
+Three things go in the findings doc (O's deliverable 5 and Honesty note both require content in the findings doc, not only in the spec):
 
-Old text (in the table):
+**1a — Update the PoC limitations table row.** Find the `? error type compatibility not enforced` row and replace it:
+
+Old text:
 ```
 | **`?` error type compatibility not enforced** (new — not in poc-findings.md) | server.fit | `serve_request` mixes `IoError` and `HttpError` under `?`; checker accepted this silently. Fix: added `type ServerError = IoError \| HttpError \| NetError` union alias and updated `serve_request`/`main` return types to `Result<(), ServerError>` for semantic correctness. |
 ```
 
-Replace with:
+New text:
 ```
-| **`?` error type compatibility** — now enforced (§7) | server.fit | Was: checker silently accepted mixed error types. Fix applied in checker.ts: `errorTypeCompatible` helper + `enclosingErr` threading enforces the §7 rule. `try_incompatible_error.fit` is the before/after flip: 0 errors → 1 error. `server.fit` continues to pass because `type ServerError = IoError \| HttpError \| NetError` makes all `?` sites flat-member compliant. |
+| **`?` error type compatibility** — now enforced (§7) | server.fit | Before: checker silently accepted mixed error types. After: `errorTypeCompatible` helper + `enclosingErr` threading enforces the §7 rule. `try_incompatible_error.fit` is the before/after flip: 0 errors → 1 error. `server.fit` continues to pass because `type ServerError = IoError \| HttpError \| NetError` makes all `?` sites flat-member compliant. |
 ```
 
-- [ ] **Step 2: Add implementation note to §7 in `docs/FIT-SPEC-v2.md`**
+**1b — Add a note after the PoC limitations table** (before the Summary section) stating the flat-union limitation and what the fix does NOT close:
+
+```markdown
+### Note on `?` error-type enforcement scope
+
+The §7 enforcement closes one gap and leaves two named open questions:
+
+**What it closes:** `e?` is now rejected at compile time when `e`'s error type is neither equal to nor a flat member of the enclosing function's declared error type. The §7 audit-surface claim — "no `NetError` in the union → provably cannot fail by network" — is now enforced, not just intended.
+
+**What it does NOT close:**
+- **Nested-union widening.** `type Outer = Inner | Z` where `Inner` is itself an alias — membership is checked by flat string comparison against `alias.members`, so `X` (a member of `Inner`) is not seen as a member of `Outer`. Whether `?` widening should expand nested aliases transitively is a §7 design question that §7 did not settle. Escalation-deferred.
+- **The broader alias-expansion question.** Whether FIT's error model should ever require alias expansion (and at what points) is an open design question separate from this fix.
+```
+
+- [ ] **Step 2: Read §7 in `docs/FIT-SPEC-v2.md` and confirm the implemented rule matches its wording**
+
+Run:
+```bash
+sed -n '/^## 7\./,/^## 8\./p' /Users/kofi/_/fit/docs/FIT-SPEC-v2.md
+```
+
+The key sentence is: *"Implicit widening works when the error is a member of the declared union; otherwise it is a compile error."*
+
+The implemented rule:
+- Equal error types (same name) → legal ✓ (a type is trivially its own member)
+- Error type is a flat member of declared alias union → legal ✓ (the "member of the declared union" case)
+- Anything else → compile error ✓
+
+Confirm these match before writing the implementation note. If §7's wording says something different than what you see above, STOP and escalate — the implementation would need to be revisited.
+
+- [ ] **Step 3: Add implementation note to §7 in `docs/FIT-SPEC-v2.md`**
 
 Find the §7 section and add after its existing content:
 
@@ -739,11 +771,11 @@ Find the §7 section and add after its existing content:
 Nested-alias expansion (where a member is itself an alias) is **not** implemented — it would require alias-resolution beyond the current flat-member model. Whether `?` widening should see through nested aliases is a deferred design question. All current programs use flat unions (leaf enums as members), so flat membership is correct and sufficient.
 
 Error messages:
-- `cannot propagate error type 'X' — not a member of 'Y' declared by enclosing function`
+- `cannot propagate error type 'X' — not a member of 'Y' declared by 'fn'`
 - `'?' in a function that does not return Result`
 ```
 
-- [ ] **Step 3: Commit the docs updates**
+- [ ] **Step 4: Commit the docs updates**
 
 ```bash
 git -C /Users/kofi/_/fit add docs/stdlib-probe-findings.md docs/FIT-SPEC-v2.md
@@ -755,7 +787,7 @@ FIT-SPEC-v2.md §7: implementation note — flat membership rule, nested-alias
 expansion deferred as named design question."
 ```
 
-- [ ] **Step 4: Final verification**
+- [ ] **Step 5: Final verification**
 
 ```bash
 npm --prefix /Users/kofi/_/fit test 2>&1 | tail -5
