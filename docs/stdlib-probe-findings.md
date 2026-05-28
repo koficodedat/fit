@@ -90,6 +90,7 @@ The "second pillar" hypothesis is answered: it does not emerge naturally for HTT
 - **No field access syntax** — `request_path(req)` as a free-function accessor instead of `req.path`. Workable but visually different from every other language the target audience knows. This was a consistent minor friction in server.fit.
 - **Parameterized resource types as field types unsupported** — `sock: TcpSocket<Connected>` is not parseable as a field type. The un-parameterized `sock: TcpSocket` workaround is sound but loses static information about the socket's state from the perspective of the type declaration.
 - **HalfClosed dead-end state** — required discovering and adding `tcp_drain_half` to make the state useful. Not a model problem, but a discipline requirement that is easy to miss: every non-terminal typestate needs at least one exit operation.
+- **Multi-domain error propagation requires union aliases** — `serve_request` mixes `IoError`, `HttpError`, and `NetError` under `?`. FIT's correct response is a `type ServerError = IoError | HttpError | NetError` alias; without it, the checker silently accepts semantically wrong error propagation. In single-domain programs this never surfaces. In any program that composes multiple resource domains (the realistic case), the author must manually reason about error union coverage — the checker provides no enforcement or guidance.
 
 ### Bearing on differentiators #2 and #3
 
