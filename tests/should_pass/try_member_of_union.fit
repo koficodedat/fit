@@ -1,0 +1,14 @@
+enum IoError { FileNotFound }
+enum HttpError { BadRequest }
+enum NetError { Refused }
+
+type ServerError = IoError | HttpError | NetError
+
+fn open(path: String) -> Result<String, IoError>
+fn validate(s: String) -> Result<String, HttpError>
+
+fn serve(p: String) -> Result<String, ServerError> {
+    let content = open(p)?
+    let validated = validate(content)?
+    Ok(validated)
+}

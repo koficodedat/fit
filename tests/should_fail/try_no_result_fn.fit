@@ -1,0 +1,6 @@
+enum IoError { Disconnected }
+fn read() -> Result<String, IoError>
+
+fn test() -> String {
+    read()?
+}

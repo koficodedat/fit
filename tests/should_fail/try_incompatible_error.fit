@@ -1,0 +1,9 @@
+enum IoError { FileNotFound }
+enum HttpError { BadRequest }
+
+fn open(path: String) -> Result<String, IoError>
+
+fn serve(p: String) -> Result<(), HttpError> {
+    let content = open(p)?
+    Ok(())
+}

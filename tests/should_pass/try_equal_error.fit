@@ -1,0 +1,7 @@
+enum ApiError { Timeout, RateLimit }
+fn fetch(u: String) -> Result<String, ApiError>
+
+fn get_data(url: String) -> Result<String, ApiError> {
+    let data = fetch(url)?
+    Ok(data)
+}
