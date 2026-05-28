@@ -1565,3 +1565,60 @@ describe("edge cases", () => {
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
 });
+
+describe("? error-type compatibility (§7)", () => {
+  it("equal error types: ? is accepted", () => {
+    const src = `
+      enum ApiError { Timeout }
+      fn fetch() -> Result<String, ApiError>
+      fn get_data() -> Result<String, ApiError> {
+        let data = fetch()?
+        Ok(data)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("member-of-union: IoError in ServerError alias is accepted", () => {
+    const src = `
+      enum IoError { NotFound }
+      enum HttpError { BadRequest }
+      type AppError = IoError | HttpError
+      fn open() -> Result<String, IoError>
+      fn handle() -> Result<String, AppError> {
+        let content = open()?
+        Ok(content)
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+
+  it("incompatible error types: error names both appear in the message", () => {
+    const src = `
+      enum IoError { NotFound }
+      enum HttpError { BadRequest }
+      fn open() -> Result<String, IoError>
+      fn serve() -> Result<(), HttpError> {
+        let content = open()?
+        Ok(())
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => e.message.includes("IoError"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("HttpError"))).toBe(true);
+  });
+
+  it("? in non-Result function: error message mentions 'does not return Result'", () => {
+    const src = `
+      enum IoError { NotFound }
+      fn read() -> Result<String, IoError>
+      fn test() -> String {
+        read()?
+      }
+    `;
+    const errors = check(parse(src, "test.fit"));
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors.some((e) => e.message.includes("does not return Result"))).toBe(true);
+  });
+});

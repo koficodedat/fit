@@ -22,6 +22,7 @@ function checkFn(fnName: string, body: Stmt[], fnPos: Pos, env: TypeEnv, errors:
   const scope: Scope = new Map();
   const caps: CapScope = new Set();
   const sig = env.functions.get(fnName);
+  let enclosingErr: FitType | null = null;
   if (sig) {
     for (const param of sig.params) {
       scope.set(param.name, {
@@ -31,8 +32,9 @@ function checkFn(fnName: string, body: Stmt[], fnPos: Pos, env: TypeEnv, errors:
       });
     }
     for (const cap of sig.caps) caps.add(cap);
+    if (sig.returnType.kind === "result") { enclosingErr = sig.returnType.err; }
   }
-  checkStmts(body, scope, caps, env, errors);
+  checkStmts(body, scope, caps, env, enclosingErr, errors);
   const exitPos: Pos = body.length > 0 ? body[body.length - 1].pos : fnPos;
   for (const [name, binding] of scope) {
     if (binding.owned && !binding.moved && binding.type_.mode === "linear") {
@@ -49,10 +51,11 @@ function checkStmts(
   scope: Scope,
   caps: CapScope,
   env: TypeEnv,
+  enclosingErr: FitType | null,
   errors: CheckError[]
 ): void {
   for (const stmt of stmts) {
-    checkStmt(stmt, scope, caps, env, errors);
+    checkStmt(stmt, scope, caps, env, enclosingErr, errors);
   }
 }
 
@@ -61,14 +64,15 @@ function checkStmt(
   scope: Scope,
   caps: CapScope,
   env: TypeEnv,
+  enclosingErr: FitType | null,
   errors: CheckError[]
 ): void {
   switch (stmt.kind) {
     case "expr":
-      checkExpr(stmt.expr, scope, caps, env, errors);
+      checkExpr(stmt.expr, scope, caps, env, enclosingErr, errors);
       break;
     case "let": {
-      const initType = checkExpr(stmt.init, scope, caps, env, errors);
+      const initType = checkExpr(stmt.init, scope, caps, env, enclosingErr, errors);
       scope.set(stmt.name, { type_: initType, owned: true, moved: false });
       break;
     }
@@ -77,18 +81,18 @@ function checkStmt(
         errors.push({ message: `cannot rebind undefined variable '${stmt.name}'`, pos: stmt.pos });
         break;
       }
-      const newType = checkExpr(stmt.expr, scope, caps, env, errors);
+      const newType = checkExpr(stmt.expr, scope, caps, env, enclosingErr, errors);
       // Old linear value gets auto-cleaned on rebind — not an error.
       scope.set(stmt.name, { type_: newType, owned: true, moved: false });
       break;
     }
     case "if": {
-      checkExpr(stmt.cond, scope, caps, env, errors);
+      checkExpr(stmt.cond, scope, caps, env, enclosingErr, errors);
       const thenScope = cloneScope(scope);
       const elseScope = cloneScope(scope);
-      checkStmts(stmt.then, thenScope, cloneCaps(caps), env, errors);
+      checkStmts(stmt.then, thenScope, cloneCaps(caps), env, enclosingErr, errors);
       checkInnerScopeExit(thenScope, scope, errors, stmt.pos);
-      checkStmts(stmt.else_, elseScope, cloneCaps(caps), env, errors);
+      checkStmts(stmt.else_, elseScope, cloneCaps(caps), env, enclosingErr, errors);
       checkInnerScopeExit(elseScope, scope, errors, stmt.pos);
       const merged = mergeScopes(scope, [thenScope, elseScope], errors, stmt.pos);
       for (const [k, v] of merged) scope.set(k, v);
@@ -97,7 +101,7 @@ function checkStmt(
     case "loop": {
       const snap = snapshotTypestates(scope);
       const bodyScope = cloneScope(scope);
-      checkStmts(stmt.body, bodyScope, cloneCaps(caps), env, errors);
+      checkStmts(stmt.body, bodyScope, cloneCaps(caps), env, enclosingErr, errors);
       checkInnerScopeExit(bodyScope, scope, errors, stmt.pos);
 
       for (const [name, beforeState] of snap) {
@@ -133,7 +137,7 @@ function checkStmt(
     }
 
     case "match": {
-      const subjectType = checkExpr(stmt.expr, scope, caps, env, errors);
+      const subjectType = checkExpr(stmt.expr, scope, caps, env, enclosingErr, errors);
       // Consume linear scrutinee — match takes ownership.
       if (stmt.expr.kind === "var" && subjectType.mode === "linear") {
         consumeBinding(stmt.expr.name, scope, errors, stmt.expr.pos);
@@ -216,7 +220,7 @@ function checkStmt(
         }
         const armVariantName = arm.pattern.kind === "variant" ? arm.pattern.name : "?";
         const armLinearBindsSet: ReadonlySet<string> = new Set(armLinearBinds);
-        checkStmts(arm.body, armScope, cloneCaps(caps), env, errors);
+        checkStmts(arm.body, armScope, cloneCaps(caps), env, enclosingErr, errors);
         checkInnerScopeExit(armScope, scope, errors, stmt.pos, armLinearBindsSet);
         for (const bindName of armLinearBinds) {
           const b = armScope.get(bindName);
@@ -239,11 +243,26 @@ function checkStmt(
   }
 }
 
+function errorTypeCompatible(propagated: FitType, declared: FitType, _env: TypeEnv): boolean {
+  // Structural equality for unit types
+  if (propagated.kind === "unit" && declared.kind === "unit") return true;
+  const pName = "name" in propagated ? propagated.name : null;
+  const dName = "name" in declared ? declared.name : null;
+  // Equality: same named type on both sides
+  if (pName !== null && pName === dName) return true;
+  // Flat alias membership: declared is a union alias and propagated's name is listed
+  if (declared.kind === "alias" && pName !== null) {
+    return declared.members.includes(pName);
+  }
+  return false;
+}
+
 function checkExpr(
   expr: Expr,
   scope: Scope,
   caps: CapScope,
   env: TypeEnv,
+  enclosingErr: FitType | null,
   errors: CheckError[]
 ): FitType {
   switch (expr.kind) {
@@ -263,7 +282,7 @@ function checkExpr(
     }
 
     case "ok": {
-      const inner = checkExpr(expr.expr, scope, caps, env, errors);
+      const inner = checkExpr(expr.expr, scope, caps, env, enclosingErr, errors);
       // Only consume a named var — temporaries (calls, literals) have no binding to mark moved.
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
@@ -277,7 +296,7 @@ function checkExpr(
     }
 
     case "err": {
-      const inner = checkExpr(expr.expr, scope, caps, env, errors);
+      const inner = checkExpr(expr.expr, scope, caps, env, enclosingErr, errors);
       // Only consume a named var — temporaries (calls, literals) have no binding to mark moved.
       if (expr.expr.kind === "var" && inner.mode === "linear") {
         consumeBinding(expr.expr.name, scope, errors, expr.expr.pos);
@@ -294,11 +313,11 @@ function checkExpr(
       // drop is a built-in consuming sink — no capability requirements
       if (expr.fn === "drop") {
         if (expr.args.length === 1 && expr.args[0].kind === "var") {
-          checkExpr(expr.args[0], scope, caps, env, errors);
+          checkExpr(expr.args[0], scope, caps, env, enclosingErr, errors);
           consumeBinding(expr.args[0].name, scope, errors, expr.args[0].pos);
         } else {
           errors.push({ message: `drop requires a single variable argument`, pos: expr.pos });
-          for (const arg of expr.args) checkExpr(arg, scope, caps, env, errors);
+          for (const arg of expr.args) checkExpr(arg, scope, caps, env, enclosingErr, errors);
         }
         return { kind: "unit", mode: "unrestricted" };
       }
@@ -306,7 +325,7 @@ function checkExpr(
       const sig = env.functions.get(expr.fn);
       if (!sig) {
         // Unknown function: evaluate all args as lend (no consumption), skip cap check
-        for (const arg of expr.args) checkExpr(arg, scope, caps, env, errors);
+        for (const arg of expr.args) checkExpr(arg, scope, caps, env, enclosingErr, errors);
         return { kind: "plain", mode: "unrestricted", name: "?" };
       }
 
@@ -326,7 +345,7 @@ function checkExpr(
           errors.push({ message: `not enough arguments to '${expr.fn}'`, pos: expr.pos });
           continue;
         }
-        checkExpr(arg, scope, caps, env, errors);
+        checkExpr(arg, scope, caps, env, enclosingErr, errors);
 
         if (arg.kind === "var") {
           const binding = scope.get(arg.name);
@@ -351,17 +370,30 @@ function checkExpr(
         }
       }
       for (let i = sig.params.length; i < expr.args.length; i++) {
-        checkExpr(expr.args[i], scope, caps, env, errors);
+        checkExpr(expr.args[i], scope, caps, env, enclosingErr, errors);
         errors.push({ message: `too many arguments to '${expr.fn}'`, pos: expr.args[i].pos });
       }
       return sig.returnType;
     }
 
     case "try": {
-      const innerType = checkExpr(expr.expr, scope, caps, env, errors);
+      const innerType = checkExpr(expr.expr, scope, caps, env, enclosingErr, errors);
       if (innerType.kind !== "result") {
         errors.push({ message: `'?' applied to non-Result type`, pos: expr.pos });
         return { kind: "plain", mode: "unrestricted", name: "?" };
+      }
+      if (enclosingErr === null) {
+        errors.push({
+          message: `'?' in a function that does not return Result`,
+          pos: expr.pos,
+        });
+      } else if (!errorTypeCompatible(innerType.err, enclosingErr, env)) {
+        const propagatedName = "name" in innerType.err ? innerType.err.name : "?";
+        const declaredName = "name" in enclosingErr ? enclosingErr.name : "?";
+        errors.push({
+          message: `cannot propagate error type '${propagatedName}' — not a member of '${declaredName}' declared by 'fn'`,
+          pos: expr.pos,
+        });
       }
       // Error path: still-owned linears get auto-cleaned by FIT runtime — no checker action needed.
       return innerType.ok;
