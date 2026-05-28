@@ -1,0 +1,20 @@
+resource File {
+    handle:  FileHandle,
+    cleanup: force_close,
+}
+
+enum IoError { NotFound, PermissionDenied, BrokenPipe }
+
+fn open(path: String) using Fs -> Result<File, IoError>
+fn read(f: lend File, buf: lend Bytes) using Fs -> Result<Int, IoError>
+fn write(f: lend File, data: Bytes) using Fs -> Result<Int, IoError>
+fn seek(f: lend File, pos: Int) using Fs -> Result<(), IoError>
+fn close(f: move File) using Fs -> Result<(), IoError>
+fn empty_bytes() -> Bytes
+fn bytes_to_string(buf: Bytes) -> String
+
+fn read_to_string(f: File) using Fs -> Result<String, IoError> {
+    let buf = empty_bytes()
+    read(f, buf)?
+    Ok(bytes_to_string(buf))
+}
