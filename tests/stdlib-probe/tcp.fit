@@ -15,6 +15,7 @@ fn tcp_recv(s: lend TcpSocket<Connected>, buf: lend Bytes) using Net -> Result<I
 fn tcp_shutdown(s: move TcpSocket<Connected>, dir: Direction) using Net -> Result<TcpSocket<HalfClosed>, NetError>
 fn tcp_close(s: move TcpSocket<Connected>) using Net -> Result<TcpSocket<Closing>, NetError>
 fn tcp_finish(s: move TcpSocket<Closing>) using Net -> Result<(), NetError>
+fn tcp_drain_half(s: move TcpSocket<HalfClosed>) using Net -> Result<(), NetError>
 
 fn tcp_roundtrip(s: lend TcpSocket<Connected>, req: Bytes, buf: lend Bytes) using Net -> Result<Bytes, NetError> {
     tcp_send(s, req)?
