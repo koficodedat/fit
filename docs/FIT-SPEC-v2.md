@@ -117,6 +117,7 @@ linear types that declare cleanup (§2.3). All three are reserved; rejected syno
 - **Declared once, at the type.** A resource defines its cleanup in its own definition.
 - **Automatic firing.** The compiler runs a resource's declared cleanup on every scope exit
   where the value is **still owned** — including early exits via `?`.
+- **[AMENDED] Scope-exit enforcement.** A linear value owned at any scope exit (function body, branch, match arm, loop body) is a compile error if not consumed. This applies to all linear types (resources and linear enums).
 - **Move-out skips cleanup.** If ownership leaves (the value is returned or consumed by
   another call), cleanup does **not** fire there (no double-free). Linearity's move-tracking
   already knows the value is gone.
@@ -182,13 +183,13 @@ linear types that declare cleanup (§2.3). All three are reserved; rejected syno
     `conn` because the body stores it into `pool`.
 - **[AMENDED] Extern annotation for linear parameters.** Functions without bodies (externs,
   FFI declarations, abstract interfaces) cannot be inferred — the checker has no body to
-  inspect. For any extern function with a linear resource parameter, the programmer must
+  inspect. For any extern function with any linear parameter (resource or enum), the programmer must
   supply an explicit annotation between the colon and the type name:
   ```
   fn close(c: move SmtpConn<Closing>) -> Result<(), SessionError>
   fn send_message(c: lend SmtpConn<Ready>, msg: Message) -> Result<(), SessionError>
   ```
-  An extern with a linear resource parameter and no annotation is a **compile error**.
+  An extern with any linear parameter and no annotation is a **compile error**.
   Non-linear parameters (plain types, aliases, records) never require annotation — the
   move/lend distinction is meaningless for unrestricted types, and the compiler accepts or
   ignores any annotation silently.
