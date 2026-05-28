@@ -87,7 +87,9 @@ function checkStmt(
       const thenScope = cloneScope(scope);
       const elseScope = cloneScope(scope);
       checkStmts(stmt.then, thenScope, cloneCaps(caps), env, errors);
+      checkInnerScopeExit(thenScope, scope, errors, stmt.pos);
       checkStmts(stmt.else_, elseScope, cloneCaps(caps), env, errors);
+      checkInnerScopeExit(elseScope, scope, errors, stmt.pos);
       const merged = mergeScopes(scope, [thenScope, elseScope], errors, stmt.pos);
       for (const [k, v] of merged) scope.set(k, v);
       break;
@@ -96,6 +98,7 @@ function checkStmt(
       const snap = snapshotTypestates(scope);
       const bodyScope = cloneScope(scope);
       checkStmts(stmt.body, bodyScope, cloneCaps(caps), env, errors);
+      checkInnerScopeExit(bodyScope, scope, errors, stmt.pos);
 
       for (const [name, beforeState] of snap) {
         const afterBind = bodyScope.get(name);
@@ -212,7 +215,9 @@ function checkStmt(
           }
         }
         const armVariantName = arm.pattern.kind === "variant" ? arm.pattern.name : "?";
+        const armLinearBindsSet: ReadonlySet<string> = new Set(armLinearBinds);
         checkStmts(arm.body, armScope, cloneCaps(caps), env, errors);
+        checkInnerScopeExit(armScope, scope, errors, stmt.pos, armLinearBindsSet);
         for (const bindName of armLinearBinds) {
           const b = armScope.get(bindName);
           if (b && !b.moved) {
@@ -369,6 +374,25 @@ function checkExpr(
   }
 }
 
+function checkInnerScopeExit(
+  innerScope: Scope,
+  outerScope: Scope,
+  errors: CheckError[],
+  pos: Pos,
+  exclude?: ReadonlySet<string>
+): void {
+  for (const [name, binding] of innerScope) {
+    if (outerScope.has(name)) continue;      // outer binding, not local
+    if (exclude?.has(name)) continue;         // handled separately (e.g., armLinearBinds)
+    if (binding.owned && !binding.moved && binding.type_.mode === "linear") {
+      errors.push({
+        message: `linear value '${name}' must be consumed before leaving scope`,
+        pos,
+      });
+    }
+  }
+}
+
 function cloneScope(scope: Scope): Scope {
   const clone: Scope = new Map();
   for (const [k, v] of scope) {
@@ -391,8 +415,10 @@ function mergeScopes(preScope: Scope, branches: Scope[], errors: CheckError[], p
     const noneMoved = movedIn.every((m) => !m);
     if (!allMoved && !noneMoved) {
       errors.push({ message: `linear value '${name}' must be consumed on all branches`, pos });
+      result.get(name)!.moved = true; // suppress scope-exit double-report for same binding
+    } else {
+      result.get(name)!.moved = allMoved;
     }
-    result.get(name)!.moved = allMoved;
   }
   return result;
 }

@@ -1340,6 +1340,79 @@ describe("enum payload tracking", () => {
   });
 });
 
+describe("inner-scope exit enforcement", () => {
+  it("let inside match arm with no consumption is an error", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      fn make_conn() -> Conn
+      enum Choice { A, B }
+      fn get_choice() -> Choice
+      fn test() -> () {
+        match get_choice() {
+          A => { let c = make_conn() },
+          B => { },
+        }
+      }
+    `;
+    const errs = check(parse(src, "test.fit"));
+    expect(errs.length).toBeGreaterThan(0);
+    expect(errs.some(e => e.message.includes("'c' must be consumed before leaving scope"))).toBe(true);
+  });
+
+  it("let inside loop body with no consumption is an error", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      fn make_conn() -> Conn
+      fn test() -> () {
+        loop {
+          let c = make_conn()
+          break
+        }
+      }
+    `;
+    const errs = check(parse(src, "test.fit"));
+    expect(errs.length).toBeGreaterThan(0);
+    expect(errs.some(e => e.message.includes("'c' must be consumed before leaving scope"))).toBe(true);
+  });
+
+  it("let inside if branch with no consumption is an error", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      fn make_conn() -> Conn
+      fn get_bool() -> Bool
+      fn test() -> () {
+        if get_bool() {
+          let c = make_conn()
+        } else {
+        }
+      }
+    `;
+    const errs = check(parse(src, "test.fit"));
+    expect(errs.length).toBeGreaterThan(0);
+    expect(errs.some(e => e.message.includes("'c' must be consumed before leaving scope"))).toBe(true);
+  });
+
+  it("partial branch consumption emits exactly one error", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      fn make_conn() -> Conn
+      fn drop_conn(c: move Conn) -> ()
+      fn get_bool() -> Bool
+      fn test() -> () {
+        let c = make_conn()
+        if get_bool() {
+          drop_conn(c)
+        } else {
+        }
+      }
+    `;
+    const errs = check(parse(src, "test.fit"));
+    const consumed = errs.filter(e => e.message.includes("'c'"));
+    expect(consumed.length).toBe(1);
+    expect(consumed[0].message).toContain("must be consumed on all branches");
+  });
+});
+
 describe("edge cases", () => {
   it("recursive function does not crash or produce false errors", () => {
     // A function that calls itself. The checker looks up the sig in env.functions
