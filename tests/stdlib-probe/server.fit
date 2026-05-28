@@ -1,0 +1,82 @@
+// ── File type ─────────────────────────────────────────────────────────────────
+
+resource File {
+    handle:  FileHandle,
+    cleanup: force_close,
+}
+
+enum IoError { NotFound, PermissionDenied, BrokenPipe }
+
+fn open(path: String) using Fs -> Result<File, IoError>
+fn read(f: lend File, buf: lend Bytes) using Fs -> Result<Int, IoError>
+fn close(f: move File) using Fs -> Result<(), IoError>
+fn empty_bytes() -> Bytes
+fn bytes_to_string(buf: Bytes) -> String
+
+fn read_to_string(f: File) using Fs -> Result<String, IoError> {
+    let buf = empty_bytes()
+    read(f, buf)?
+    Ok(bytes_to_string(buf))
+}
+
+// ── TcpSocket type ────────────────────────────────────────────────────────────
+
+enum TcpState { Fresh, Connected, HalfClosed, Closing }
+
+resource TcpSocket<S> {
+    fd:      SocketFd,
+    cleanup: tcp_force_close,
+}
+
+enum NetError { Refused, Timeout, Reset, NetBrokenPipe }
+
+// ── HttpConn type ─────────────────────────────────────────────────────────────
+
+resource HttpConn {
+    sock:    TcpSocket,
+    cleanup: http_force_close,
+}
+
+enum HttpError { BadRequest, HttpNotFound, InternalError }
+
+record ParsedRequest {
+    method: String,
+    path:   String,
+    body:   Bytes,
+}
+
+record ValidatedRequest {
+    method: String,
+    path:   String,
+    body:   Bytes,
+}
+
+fn http_accept() using Net -> Result<HttpConn, NetError>
+fn http_receive(conn: lend HttpConn) using Net -> Result<ParsedRequest, HttpError>
+fn validate(req: ParsedRequest) -> Result<ValidatedRequest, HttpError>
+fn request_path(req: ValidatedRequest) -> String
+fn ok_response(body: String) -> Response
+fn http_send(conn: lend HttpConn, resp: Response) using Net -> Result<(), HttpError>
+fn http_close(conn: move HttpConn) using Net -> Result<(), HttpError>
+fn http_force_close(conn: move HttpConn) -> ()
+
+// ── End-to-end program ────────────────────────────────────────────────────────
+
+fn serve_request(conn: lend HttpConn) using Net, Fs -> Result<(), HttpError> {
+    let req     = http_receive(conn)?
+    let req     = validate(req)?
+    let path    = request_path(req)
+    let f       = open(path)?
+    let content = read_to_string(f)?
+    close(f)?
+    let resp    = ok_response(content)
+    http_send(conn, resp)?
+    Ok(())
+}
+
+fn main() using Net, Fs -> Result<(), HttpError> {
+    let conn = http_accept()?
+    serve_request(conn)?
+    http_close(conn)?
+    Ok(())
+}
