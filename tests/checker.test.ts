@@ -1340,6 +1340,65 @@ describe("enum payload tracking", () => {
   });
 });
 
+describe("linear enum as parameter", () => {
+  it("bodyless fn with unannotated linear enum param emits BuildError", () => {
+    // In FIT, a fn with no body is an extern. No annotation on a linear param is a compile error.
+    const src = `
+      resource Conn { cleanup: close_conn }
+      enum RecvResult { More(Conn), Done(Conn) }
+      fn consume_r(r: RecvResult) -> ()
+    `;
+    const errs = check(parse(src, "test.fit"));
+    expect(errs.some((e) => e.message.includes("no move/lend annotation"))).toBe(true);
+  });
+
+  it("use-after-move of a linear enum param is an error", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      enum RecvResult { More(Conn), Done(Conn) }
+      fn consume_r(r: move RecvResult) -> ()
+      fn caller() -> () {
+        let r = consume_r
+        consume_r(r)
+        consume_r(r)
+      }
+    `;
+    // Simpler: pass r by move twice via two calls
+    const src2 = `
+      resource Conn { cleanup: close_conn }
+      enum RecvResult { More(Conn), Done(Conn) }
+      fn get_r() -> RecvResult
+      fn consume_r(r: move RecvResult) -> ()
+      fn test() -> () {
+        let r = get_r()
+        consume_r(r)
+        consume_r(r)
+      }
+    `;
+    const errs = check(parse(src2, "test.fit"));
+    expect(errs.some((e) => e.message.includes("already been moved"))).toBe(true);
+  });
+
+  it("symmetric branch consumption of linear enum is accepted", () => {
+    const src = `
+      resource Conn { cleanup: close_conn }
+      enum RecvResult { More(Conn), Done(Conn) }
+      fn get_r() -> RecvResult
+      fn consume_r(r: move RecvResult) -> ()
+      fn get_bool() -> Bool
+      fn test() -> () {
+        let r = get_r()
+        if get_bool() {
+          consume_r(r)
+        } else {
+          consume_r(r)
+        }
+      }
+    `;
+    expect(check(parse(src, "test.fit"))).toEqual([]);
+  });
+});
+
 describe("inner-scope exit enforcement", () => {
   it("let inside match arm with no consumption is an error", () => {
     const src = `
