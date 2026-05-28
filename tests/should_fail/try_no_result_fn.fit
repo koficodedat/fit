@@ -1,4 +1,4 @@
-// Exercises: '?' in a function that does not return Result (enclosingErr === null, checker.ts try case line 2)
+// Exercises: '?' in a function whose return type is not Result (enclosingErr === null)
 enum IoError { Disconnected }
 fn read() -> Result<String, IoError>
 

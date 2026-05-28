@@ -142,7 +142,7 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 | **No match exhaustiveness checking** | A `match` missing an enum variant compiles silently. | Add variant coverage check once enum variant types are tracked. |
 | **Duplicate declarations silently last-write-win** | No error for `resource Foo { ... }` declared twice. | First-pass duplicate detection in `buildTypeEnv`. |
 
-None of these limitations caused a false negative or false positive on the canonical programs or the 258-test suite, *provided* extern resource params carry explicit `move`/`lend` annotations.
+None of these limitations caused a false negative or false positive on the canonical programs or the 292-test suite, *provided* extern resource params carry explicit `move`/`lend` annotations.
 
 ---
 

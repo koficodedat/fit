@@ -1,4 +1,4 @@
-// Exercises: '?' applied to non-Result expression (expression-level check, checker.ts try case line 1)
+// Exercises: '?' applied to a non-Result expression (expression-level check)
 fn get_value() -> String
 
 fn test() -> String {

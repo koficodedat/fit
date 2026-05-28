@@ -396,8 +396,8 @@ function checkExpr(
           pos: expr.pos,
         });
       } else if (!errorTypeCompatible(innerType.err, enclosingErr, env)) {
-        const propagatedName = "name" in innerType.err ? innerType.err.name : "?";
-        const declaredName = "name" in enclosingErr ? enclosingErr.name : "?";
+        const propagatedName = "name" in innerType.err ? innerType.err.name : "()";
+        const declaredName = "name" in enclosingErr ? enclosingErr.name : "()";
         errors.push({
           message: `cannot propagate error type '${propagatedName}' — not a member of '${declaredName}' declared by 'fn'`,
           pos: expr.pos,
