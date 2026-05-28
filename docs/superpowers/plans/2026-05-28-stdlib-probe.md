@@ -18,14 +18,14 @@ Fill this table in as you complete each type task. The findings document (Task 6
 
 | Metric | file.fit | tcp.fit | http.fit | Total |
 |--------|----------|---------|----------|-------|
-| Bodied functions (fn with `{ }`) | 1 | 1 | | |
-| Extern declarations (fn without `{ }`) | 7 | 8 | | |
-| Bodied / total ratio | 12.5% | 11.1% | | |
-| `move` annotations on externs | 1 | 5 | | |
-| `lend` annotations on externs | 4 | 3 | | |
-| Total annotations | 5 | 8 | | |
-| Lines inside `fn { }` bodies | 3 | 3 | | |
-| Lines of bare `fn ...` extern declarations | 7 | 8 | | |
+| Bodied functions (fn with `{ }`) | 1 | 1 | 0 | 2 |
+| Extern declarations (fn without `{ }`) | 7 | 8 | 8 | 23 |
+| Bodied / total ratio | 12.5% | 11.1% | 0% | 8.0% |
+| `move` annotations on externs | 1 | 5 | 2 | 8 |
+| `lend` annotations on externs | 4 | 3 | 2 | 9 |
+| Total annotations | 5 | 8 | 4 | 17 |
+| Lines inside `fn { }` bodies | 3 | 3 | 0 | 6 |
+| Lines of bare `fn ...` extern declarations | 7 | 8 | 8 | 23 |
 
 ---
 

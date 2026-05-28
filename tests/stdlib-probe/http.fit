@@ -1,0 +1,28 @@
+resource HttpConn {
+    sock:    TcpSocket,
+    cleanup: http_force_close,
+}
+
+enum HttpError { BadRequest, NotFound, InternalError }
+enum NetError  { Refused, Timeout, Reset, BrokenPipe }
+
+record ParsedRequest {
+    method: String,
+    path:   String,
+    body:   Bytes,
+}
+
+record ValidatedRequest {
+    method: String,
+    path:   String,
+    body:   Bytes,
+}
+
+fn http_accept() using Net -> Result<HttpConn, NetError>
+fn http_receive(conn: lend HttpConn) using Net -> Result<ParsedRequest, HttpError>
+fn validate(req: ParsedRequest) -> Result<ValidatedRequest, HttpError>
+fn request_path(req: ValidatedRequest) -> String
+fn ok_response(body: String) -> Response
+fn http_send(conn: lend HttpConn, resp: Response) using Net -> Result<(), HttpError>
+fn http_close(conn: move HttpConn) using Net -> Result<(), HttpError>
+fn http_force_close(conn: move HttpConn) -> ()
