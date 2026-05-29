@@ -313,7 +313,7 @@ cases — straight-line, plain-loop, recursive-drain — together.)*
 Nested-alias expansion (where a member is itself an alias) is **not** implemented — it would require alias-resolution beyond the current flat-member model. Whether `?` widening should see through nested aliases is a deferred design question. All current programs use flat unions (leaf enums as members), so flat membership is correct and sufficient.
 
 Error messages:
-- `cannot propagate error type 'X' — not a member of 'Y' declared by 'fn'`
+- `cannot propagate error type 'X' — not a member of 'Y' declared by '<fn-name>'`
 - `'?' in a function that does not return Result`
 
 ---

@@ -1604,7 +1604,7 @@ describe("? error-type compatibility (§7)", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some((e) => e.message.includes("IoError") && e.message.includes("HttpError"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("IoError") && e.message.includes("HttpError") && e.message.includes("serve"))).toBe(true);
   });
 
   it("? in non-Result function: error message mentions 'does not return Result'", () => {
