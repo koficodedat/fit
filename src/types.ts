@@ -44,7 +44,7 @@ export type FunctionSig = {
 export type TypeEnv = {
   resources: Map<string, ResourceInfo>;
   aliases: Map<string, string[]>;
-  enums: Map<string, VariantInfo>;       // keyed by variant name (e.g. "More", "Done")
+  enums: Map<string, VariantInfo[]>;     // keyed by variant name (e.g. "More", "Done"); array allows same name in multiple enums
   enumDecls: Map<string, EnumInfo>;      // keyed by enum name
   functions: Map<string, FunctionSig>;
 };
@@ -151,6 +151,8 @@ function exprConsumesVar(
       return exprConsumesVar(name, expr.expr, fnMap);
     case "unit_val":
       return false;
+    case "qualified_var":
+      return false;
     default: {
       const _exhaustive: never = expr;
       return false;
@@ -178,6 +180,9 @@ function stmtConsumesVar(
     case "loop":
       return bodyConsumesVar(name, stmt.body, fnMap);
     case "match":
+      // The scrutinee is consumed if it's a direct variable reference and the checker
+      // will take ownership of it (linear match subjects are consumed by the match stmt).
+      if (stmt.expr.kind === "var" && stmt.expr.name === name) return true;
       return stmt.arms.some((arm) => bodyConsumesVar(name, arm.body, fnMap));
     case "break":
     case "select":
@@ -205,10 +210,41 @@ function inferParamModeFromBody(
   return bodyConsumesVar(paramName, body, fnMap) ? "move" : "lend";
 }
 
+export function resolveVariant(
+  name: string,
+  qualifier: string | null,
+  env: TypeEnv
+): { result: VariantInfo; error: null } | { result: null; error: string } {
+  if (qualifier !== null) {
+    if (!env.enumDecls.has(qualifier)) {
+      return { result: null, error: `unknown enum '${qualifier}'` };
+    }
+    const candidates = env.enums.get(name) ?? [];
+    const match = candidates.find((v) => v.enumName === qualifier);
+    if (!match) {
+      return { result: null, error: `enum '${qualifier}' does not declare variant '${name}'` };
+    }
+    return { result: match, error: null };
+  }
+  const candidates = env.enums.get(name) ?? [];
+  if (candidates.length === 0) {
+    return { result: null, error: `unknown variant '${name}' in match pattern` };
+  }
+  if (candidates.length === 1) {
+    return { result: candidates[0], error: null };
+  }
+  const enumNames = candidates.map((v) => v.enumName);
+  const suggestions = enumNames.map((e) => `'${e}.${name}'`).join(" or ");
+  return {
+    result: null,
+    error: `ambiguous variant '${name}' — declared by enums ${enumNames.join(", ")}; use ${suggestions} to disambiguate`,
+  };
+}
+
 export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: BuildError[] } {
   const resources = new Map<string, ResourceInfo>();
   const aliases = new Map<string, string[]>();
-  const enums = new Map<string, VariantInfo>();
+  const enums = new Map<string, VariantInfo[]>();
   const enumDecls = new Map<string, EnumInfo>();
   const functions = new Map<string, FunctionSig>();
   const buildErrors: BuildError[] = [];
@@ -240,16 +276,12 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
     if (decl.kind === "enum") {
       let isLinear = false;
       for (const variant of decl.variants) {
-        if (enums.has(variant.name)) {
-          buildErrors.push({
-            message: `variant name '${variant.name}' is already declared by enum '${enums.get(variant.name)!.enumName}'`,
-            pos: decl.pos,
-          });
-        } else {
-          const payload = variant.payload !== null ? resolveType(variant.payload, resolveEnv) : null;
-          enums.set(variant.name, { enumName: decl.name, payload });
-          if (payload !== null && payload.mode === "linear") isLinear = true;
-        }
+        const payload = variant.payload !== null ? resolveType(variant.payload, resolveEnv) : null;
+        const info: VariantInfo = { enumName: decl.name, payload };
+        const existing = enums.get(variant.name) ?? [];
+        existing.push(info);
+        enums.set(variant.name, existing);
+        if (payload !== null && payload.mode === "linear") isLinear = true;
       }
       enumDecls.set(decl.name, { name: decl.name, isLinear });
     }

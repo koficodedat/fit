@@ -382,6 +382,12 @@ class Parser {
       return this.parseSelect(p);
     }
 
+    // unit value expression statement: ()
+    if (this.peek() === "(" && this.peek(1) === ")") {
+      const expr = this.parseExpr(); // consumes ()
+      return { kind: "expr", expr, pos: p };
+    }
+
     // expression or rebind — read leading identifier first
     const name = this.ident();
     this.skip();
@@ -397,6 +403,13 @@ class Parser {
 
   private parseExprFromName(name: string, p: Pos): Expr {
     this.skip();
+    // Qualified access: EnumName.Member — semantic interpretation deferred to checker
+    if (this.peek() === "." && /[a-zA-Z_]/.test(this.peek(1))) {
+      this.advance(); // consume "."
+      const memberName = this.ident();
+      const e: Expr = { kind: "qualified_var", enumName: name, name: memberName, pos: p };
+      return this.parseTry(e);
+    }
     if (this.peek() === "(") {
       this.advance(); // consume (
       this.skip();
@@ -476,8 +489,17 @@ class Parser {
       this.advance();
       return { kind: "wildcard" };
     }
-    const name = this.ident();
+    const first = this.ident();
     this.skip();
+    // Qualified variant: EnumName.VariantName
+    let qualifier: string | null = null;
+    let name = first;
+    if (this.peek() === "." && /[a-zA-Z_]/.test(this.peek(1))) {
+      this.advance(); // consume "."
+      qualifier = first;
+      name = this.ident();
+      this.skip();
+    }
     const binds: string[] = [];
     if (this.peek() === "(") {
       this.advance();
@@ -492,7 +514,7 @@ class Parser {
       }
       this.expect(")");
     }
-    return { kind: "variant", name, binds };
+    return { kind: "variant", qualifier, name, binds };
   }
 
   private parseMatchStmt(p: Pos): Stmt {

@@ -354,11 +354,11 @@ test("parse match — unit variant arm + block arm", () => {
   if (s.kind === "match") {
     expect(s.arms).toHaveLength(2);
     const arm0 = s.arms[0];
-    expect(arm0.pattern).toEqual({ kind: "variant", name: "None", binds: [] });
+    expect(arm0.pattern).toEqual({ kind: "variant", qualifier: null, name: "None", binds: [] });
     expect(arm0.body).toHaveLength(1);
     expect(arm0.body[0].kind).toBe("break");
     const arm1 = s.arms[1];
-    expect(arm1.pattern).toEqual({ kind: "variant", name: "Some", binds: ["msg", "rest"] });
+    expect(arm1.pattern).toEqual({ kind: "variant", qualifier: null, name: "Some", binds: ["msg", "rest"] });
     expect(arm1.body).toHaveLength(2);
   }
 });

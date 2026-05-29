@@ -396,6 +396,10 @@ function emitExpr(
       return { cExpr: `${tmpName}.ok`, fitType: okFitType };
     }
 
+    case "qualified_var":
+      // Qualified variant reference in expression position — not a value in FIT.
+      return { cExpr: "0", fitType: { kind: "plain", mode: "unrestricted", name: expr.name } };
+
     default: {
       const _exhaustive: never = expr;
       return { cExpr: "0", fitType: { kind: "unit", mode: "unrestricted" } };

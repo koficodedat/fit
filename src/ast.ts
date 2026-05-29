@@ -46,11 +46,14 @@ export type Expr =
   | { kind: "try"; expr: Expr; pos: Pos }
   | { kind: "ok"; expr: Expr; pos: Pos }
   | { kind: "err"; expr: Expr; pos: Pos }
-  | { kind: "unit_val"; pos: Pos };
+  | { kind: "unit_val"; pos: Pos }
+  | { kind: "qualified_var"; enumName: string; name: string; pos: Pos };
 
 export type FieldDef = { name: string; type_: Type };
 export type ParamDef = { name: string; type_: Type; annotatedMode: "move" | "lend" | null };
 export type CleanupDef = { fallback: boolean; fn: string };
 export type VariantDef = { name: string; payload: Type | null };
 export type MatchArm = { pattern: Pattern; body: Stmt[] };
-export type Pattern = { kind: "variant"; name: string; binds: string[] } | { kind: "wildcard" };
+export type Pattern =
+  | { kind: "variant"; qualifier: string | null; name: string; binds: string[] }
+  | { kind: "wildcard" };

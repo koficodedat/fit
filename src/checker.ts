@@ -1,5 +1,5 @@
 import { Program, Stmt, Expr, Pos } from "./ast";
-import { FitType, TypeEnv, buildTypeEnv } from "./types";
+import { FitType, TypeEnv, buildTypeEnv, resolveVariant } from "./types";
 
 export type CheckError = { message: string; pos: Pos };
 
@@ -149,7 +149,7 @@ function checkStmt(
       // Accept both "plain" (pre-enumDecls env) and "enum" (post-enumDecls env, Task 55).
       const subjectIsKnownEnum =
         (subjectType.kind === "plain" || subjectType.kind === "enum") &&
-        [...env.enums.values()].some((v) => v.enumName === subjectType.name);
+        env.enumDecls.has(subjectType.name);
 
       const branchScopes: Scope[] = [];
       for (const arm of stmt.arms) {
@@ -158,13 +158,12 @@ function checkStmt(
         // checkStmts because mergeScopes only walks preScope, not arm-local bindings.
         const armLinearBinds: string[] = [];
         if (arm.pattern.kind === "variant") {
-          const variantInfo = env.enums.get(arm.pattern.name);
-          if (!variantInfo) {
-            if (subjectIsKnownEnum) {
-              errors.push({
-                message: `unknown variant '${arm.pattern.name}' in match pattern`,
-                pos: stmt.pos,
-              });
+          const resolved = resolveVariant(arm.pattern.name, arm.pattern.qualifier, env);
+          const variantInfo = resolved.result;
+          if (variantInfo === null) {
+            // Emit error if: subject is a known enum (existing gate) OR a qualifier was given (always check explicit refs)
+            if (subjectIsKnownEnum || arm.pattern.qualifier !== null) {
+              errors.push({ message: resolved.error, pos: stmt.pos });
             }
             for (const bind of arm.pattern.binds) {
               armScope.set(bind, {
@@ -411,6 +410,12 @@ function checkExpr(
       // Error path: still-owned linears get auto-cleaned by FIT runtime — no checker action needed.
       return innerType.ok;
     }
+
+    case "qualified_var":
+      // Qualified variant reference in expression position (e.g. IoError.NotFound).
+      // Variants are not values in FIT — this case is here for parser completeness.
+      // Return unrestricted plain type; no binding consumption.
+      return { kind: "plain", mode: "unrestricted", name: expr.name };
 
     default: {
       const _exhaustive: never = expr;

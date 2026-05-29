@@ -150,7 +150,7 @@ test("edge: match pattern with two binds", () => {
   if (d.kind === "fn" && d.body) {
     const s = d.body[0];
     if (s.kind === "match") {
-      expect(s.arms[0].pattern).toEqual({ kind: "variant", name: "Pair", binds: ["a", "b"] });
+      expect(s.arms[0].pattern).toEqual({ kind: "variant", qualifier: null, name: "Pair", binds: ["a", "b"] });
     }
   }
 });
