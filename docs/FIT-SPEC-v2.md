@@ -110,6 +110,35 @@ linear types that declare cleanup (§2.3). All three are reserved; rejected syno
 
 *(Evidence: O5 closed Phase 1. Keywords chosen for familiarity and clarity of intent.)*
 
+### 2.5 Variant name resolution
+
+Variant names need not be globally unique across enums. A bare variant name `V` resolves unambiguously if exactly one declared enum contains `V`; if multiple enums declare `V`, the use site must qualify using dot syntax: `EnumName.V`.
+
+**Resolution rule (implemented, PoC 2026-05-29):**
+
+1. Bare `V` at a use site (e.g. a match arm): resolve by scanning all declared enums. If exactly one declares `V`, use it. If zero declare it, emit `unknown variant 'V' in match pattern`. If two or more declare it, emit:
+   ```
+   ambiguous variant 'V' — declared by enums X, Y; use 'X.V' or 'Y.V' to disambiguate
+   ```
+
+2. Qualified `EnumName.V`: look up `EnumName` in declared enums. If not found:
+   ```
+   unknown enum 'EnumName'
+   ```
+   If found but `EnumName` does not declare `V`:
+   ```
+   enum 'EnumName' does not declare 'V'
+   ```
+   Otherwise resolve to the `V` declared by `EnumName`.
+
+**Syntax:** Dot notation only — `IoError.NotFound`. No `::` (FIT is not Rust).
+
+**Disambiguation against future field access:** The parser treats `Name.member` as a qualified access. Whether the left-hand side is a type name (variant qualification) or a value name (field access) is a semantic distinction deferred to the checker. Field access is not yet implemented.
+
+**Deferred: mixed-qualification within one match.** Whether a match arm using `IoError.NotFound` can coexist with a bare `BadRequest` arm (where `BadRequest` is unambiguous) in the same match is an open design question. The current checker resolves each arm independently; mixed-qualification is permitted if all bare names are unambiguous.
+
+*(Evidence: stdlib probe finding — enum variant name conflicts discovered when composing multiple resource domains (server.fit). Option B (dot syntax) implemented PoC 2026-05-28; payment.fit, smtp.fit, drain.fit, and all probe files (file.fit, tcp.fit, http.fit, server.fit) pass with natural, un-prefixed variant names.)*
+
 ---
 
 ## 3. Cleanup & disposal
