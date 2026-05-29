@@ -1,0 +1,9 @@
+enum Status { Active, Inactive }
+enum Priority { High, Low }
+
+fn classify(s: Status) -> () {
+    match s {
+        Active => { () }
+        Inactive => { () }
+    }
+}

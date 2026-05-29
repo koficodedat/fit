@@ -1,0 +1,11 @@
+enum IoError { NotFound, PermissionDenied }
+
+fn get_error() -> IoError
+
+fn check(e: IoError) -> () {
+    match e {
+        IoError.Garbage => { () }
+        NotFound => { () }
+        PermissionDenied => { () }
+    }
+}

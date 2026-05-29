@@ -1,0 +1,16 @@
+enum IoError { NotFound, PermissionDenied }
+enum HttpError { NotFound, BadRequest }
+
+fn get_io_error() -> IoError
+fn get_http_error() -> HttpError
+
+fn handle(e: IoError, h: HttpError) -> () {
+    match e {
+        IoError.NotFound => { () }
+        PermissionDenied => { () }
+    }
+    match h {
+        HttpError.NotFound => { () }
+        BadRequest => { () }
+    }
+}

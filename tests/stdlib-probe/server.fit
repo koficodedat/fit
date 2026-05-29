@@ -28,7 +28,7 @@ resource TcpSocket<S> {
     cleanup: tcp_force_close,
 }
 
-enum NetError { Refused, Timeout, Reset, NetBrokenPipe }
+enum NetError { Refused, Timeout, Reset, BrokenPipe }
 
 // ── HttpConn type ─────────────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ resource HttpConn {
     cleanup: http_force_close,
 }
 
-enum HttpError { BadRequest, HttpNotFound, InternalError }
+enum HttpError { BadRequest, NotFound, InternalError }
 
 type ServerError = IoError | HttpError | NetError
 

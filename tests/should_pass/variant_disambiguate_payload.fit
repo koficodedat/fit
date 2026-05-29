@@ -1,0 +1,12 @@
+resource Handle { fd: Int, cleanup: close_handle }
+fn close_handle(h: move Handle) -> ()
+
+enum ReadResult { More(Handle), Done }
+enum WriteResult { More(Handle), Done }
+
+fn process(r: ReadResult) -> () {
+    match r {
+        ReadResult.More(h) => { drop(h) }
+        ReadResult.Done => { () }
+    }
+}

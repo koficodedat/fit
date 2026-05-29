@@ -1,0 +1,11 @@
+enum IoError { NotFound, PermissionDenied }
+enum HttpError { NotFound, BadRequest }
+
+fn get_error() -> IoError
+
+fn check(e: IoError) -> () {
+    match e {
+        NotFound => { () }
+        PermissionDenied => { () }
+    }
+}
