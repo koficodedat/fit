@@ -127,7 +127,7 @@ Variant names need not be globally unique across enums. A bare variant name `V` 
    ```
    If found but `EnumName` does not declare `V`:
    ```
-   enum 'EnumName' does not declare 'V'
+   enum 'EnumName' does not declare variant 'V'
    ```
    Otherwise resolve to the `V` declared by `EnumName`.
 
