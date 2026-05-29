@@ -152,13 +152,13 @@ The PoC is complete when:
 - **Q2 (no-sigil readability):** ⚠️ **unverified** — `docs/reader-study.md` instrument written; study not yet conducted.
 - **Q3 (typestate/recursion guardrail):** answered — `drain.fit` exercises the recursion idiom; `drain_loop.fit` is correctly rejected.
 
-**Test suite:** 292 tests across 7 suites (unit, integration, edge cases, should_pass/should_fail, § error-type compatibility), all passing.
+**Test suite:** 299 tests across 7 suites (unit, integration, edge cases, should_pass/should_fail, § error-type compatibility), all passing.
 **Canonical programs:** `payment.fit`, `smtp.fit`, `drain.fit` — all pass, 0 errors.
-**Line count:** parser: 544 · checker: 336 · types: 290 · ast: 56 · **total: 1226** (2× Austral reflects TypeScript vs. OCaml verbosity; see `docs/poc-findings.md`).
+**Line count:** parser: 566 · checker: 495 · types: 359 · ast: 59 · **total: 1479** (~2.5× Austral; see `docs/poc-findings.md` for trend note).
 
 See `docs/poc-findings.md` for the full assessment.
 
-**Test suite:** 292 tests across 7 suites (unit, integration, edge cases, should_pass/should_fail, § error-type compatibility).
+**Test suite:** 299 tests across 7 suites (unit, integration, edge cases, should_pass/should_fail, § error-type compatibility).
 
 **Post-remediation changes (2026-05-25):**
 - Replaced return-type name-matching heuristic with body-based move inference (spec §4)

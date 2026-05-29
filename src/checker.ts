@@ -415,7 +415,7 @@ function checkExpr(
       // Qualified variant reference in expression position (e.g. IoError.NotFound).
       // Variants are not values in FIT — this case is here for parser completeness.
       // Return unrestricted plain type; no binding consumption.
-      return { kind: "plain", mode: "unrestricted", name: expr.name };
+      return { kind: "plain", mode: "unrestricted", name: expr.enumName };
 
     default: {
       const _exhaustive: never = expr;

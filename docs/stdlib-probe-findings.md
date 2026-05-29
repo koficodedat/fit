@@ -110,6 +110,14 @@ The "second pillar" hypothesis is answered: it does not emerge naturally for HTT
 | Parameterized resource types as field types unsupported | http.fit | Workaround: used `sock: TcpSocket` (un-parameterized). Open post-PoC design question. |
 | **`?` error type compatibility** — now enforced (§7) | server.fit | Implemented: `errorTypeCompatible` helper + `enclosingErr` threading enforces §7 rule. `try_incompatible_error.fit` before/after flip: 0 errors → 1 error. `server.fit` continues to pass with `type ServerError = IoError \| HttpError \| NetError`. |
 
+### Note on bundled fix: match-scrutinee lend/move inference (PoC 2026-05-29)
+
+The variant namespacing PR also closed a pre-existing soundness bug in `stmtConsumesVar` (`types.ts`): a function that consumed a linear parameter **only** via match scrutinee (e.g. `match w { ... }`) would infer `lend` for that parameter instead of `move`. The match statement was invisible to `inferParamModeFromBody`, so the inferred mode was wrong. Callers were not told to consume the argument — a soundness hole allowing double-use.
+
+**Regression test:** `tests/should_fail/scrutinee_move_inference.fit` — a caller that invokes `consume_match(w)` twice. Before the fix this silently passed; after the fix it is correctly rejected with `"value 'w' has already been moved"`.
+
+---
+
 ### Note on `?` error-type enforcement scope
 
 The §7 enforcement closes one gap and leaves two named open questions:

@@ -135,7 +135,7 @@ Variant names need not be globally unique across enums. A bare variant name `V` 
 
 **Disambiguation against future field access:** The parser treats `Name.member` as a qualified access. Whether the left-hand side is a type name (variant qualification) or a value name (field access) is a semantic distinction deferred to the checker. Field access is not yet implemented.
 
-**Deferred: mixed-qualification within one match.** Whether a match arm using `IoError.NotFound` can coexist with a bare `BadRequest` arm (where `BadRequest` is unambiguous) in the same match is an open design question. The current checker resolves each arm independently; mixed-qualification is permitted if all bare names are unambiguous.
+**Within a single match, each arm's variant name is resolved independently.** Bare names are permitted when unambiguous; qualified names are permitted always. The scrutinee determines the enum context, so arms always belong to a single enum even when notationally mixed. This is the settled rule — not deferred.
 
 *(Evidence: stdlib probe finding — enum variant name conflicts discovered when composing multiple resource domains (server.fit). Option B (dot syntax) implemented PoC 2026-05-28; payment.fit, smtp.fit, drain.fit, and all probe files (file.fit, tcp.fit, http.fit, server.fit) pass with natural, un-prefixed variant names.)*
 

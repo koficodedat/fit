@@ -1,0 +1,22 @@
+// Regression test for stmtConsumesVar scrutinee-consumption fix (types.ts).
+// Before the fix, a function that consumed a linear param only via match scrutinee
+// would infer "lend" for that param (the match was invisible to inferParamModeFromBody).
+// The caller then did not mark the argument as moved — allowing a double-use.
+// After the fix, consume_match correctly infers "move", and the second call below
+// must be rejected with "value 'w' has already been moved".
+resource Handle { fd: Int, cleanup: force_close }
+fn force_close(h: move Handle) -> ()
+
+enum WrapResult { Ok(Handle), Err }
+
+fn consume_match(w: WrapResult) -> () {
+    match w {
+        WrapResult.Ok(h) => { drop(h) }
+        WrapResult.Err => { () }
+    }
+}
+
+fn call_twice(w: WrapResult) -> () {
+    consume_match(w)
+    consume_match(w)
+}
