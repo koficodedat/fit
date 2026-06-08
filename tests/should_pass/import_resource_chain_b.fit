@@ -1,0 +1,6 @@
+resource Widget {
+    handle: Int,
+    cleanup: drop_widget
+}
+fn make_widget() -> Widget
+fn drop_widget(w: move Widget) -> ()

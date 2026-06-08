@@ -1,0 +1,6 @@
+import import_resource_chain_a
+
+fn run() -> () {
+    let w = make_widget()
+    use_widget(w)
+}

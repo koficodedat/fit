@@ -1,0 +1,3 @@
+import import_cycle_dep
+
+fn run() -> ()

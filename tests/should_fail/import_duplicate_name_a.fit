@@ -1,0 +1,2 @@
+resource Connection { cleanup: close_conn_a }
+fn close_conn_a(c: move Connection) -> ()

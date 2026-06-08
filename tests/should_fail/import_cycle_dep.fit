@@ -1,0 +1,3 @@
+import import_cycle
+
+fn helper() -> ()

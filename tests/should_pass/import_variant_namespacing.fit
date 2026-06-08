@@ -1,0 +1,13 @@
+import import_variant_namespacing_dep
+
+enum TaskResult { Done, Failed }
+fn report_done() -> ()
+fn report_pending() -> ()
+
+fn check_status() -> () {
+    let s = get_status()
+    match s {
+        Status.Done => { report_done() }
+        Status.Pending => { report_pending() }
+    }
+}
