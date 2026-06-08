@@ -89,6 +89,11 @@ function collectPlainTypeNames(env: TypeEnv, program: Program): string[] {
 
 // Entry point: compile a parsed FIT program to a C source string.
 export function codegen(program: Program): string {
+  if (program.decls.some(d => d.kind === "import")) {
+    throw new Error(
+      "codegen: unexpected import decl in assembled program — loader must strip imports before codegen"
+    );
+  }
   const { env } = buildTypeEnv(program);
   const out: string[] = [];
 
