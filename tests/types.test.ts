@@ -519,23 +519,24 @@ describe("buildTypeEnv — edge cases", () => {
     expect(sig!.returnType).toEqual({ kind: "plain", mode: "unrestricted", name: "Pt" });
   });
 
-  it("duplicate resource name — second decl silently overwrites first", () => {
-    // Known behavior: buildTypeEnv does not enforce name uniqueness.
-    // Step 3 (checker) is responsible for catching duplicate declarations.
+  it("duplicate resource name — emits BuildError, first decl wins", () => {
     const prog = parse(
       "resource Conn { sock: X, cleanup: close_a } resource Conn { sock: Y, cleanup: close_b }",
       "test.fit"
     );
-    const { env } = buildTypeEnv(prog);
-    expect(env.resources.get("Conn")).toMatchObject({ cleanup: "close_b" });
+    const { env, buildErrors } = buildTypeEnv(prog);
+    expect(buildErrors.some(e => e.message.includes("duplicate declaration of 'Conn'"))).toBe(true);
+    // First declaration is retained
+    expect(env.resources.get("Conn")).toMatchObject({ cleanup: "close_a" });
   });
 
-  it("duplicate fn name — second decl silently overwrites first", () => {
+  it("duplicate fn name — emits BuildError, first decl wins", () => {
     const prog = parse("fn greet() -> () fn greet(x: Int) -> ()", "test.fit");
-    const { env } = buildTypeEnv(prog);
+    const { env, buildErrors } = buildTypeEnv(prog);
+    expect(buildErrors.some(e => e.message.includes("duplicate declaration of 'greet'"))).toBe(true);
     const sig = env.functions.get("greet");
     expect(sig).toBeDefined();
-    expect(sig!.params).toHaveLength(1); // second decl wins
+    expect(sig!.params).toHaveLength(0); // first decl wins
   });
 
   it("zero-param function with resource return type", () => {
@@ -611,5 +612,49 @@ describe("buildTypeEnv — edge cases", () => {
     const sig = env.functions.get("sensitive");
     expect(sig).toBeDefined();
     expect(sig!.caps).toEqual(["UndeclaredCap"]);
+  });
+});
+
+describe("buildTypeEnv duplicate-name detection", () => {
+  it("two resources with the same name in one program emits a BuildError", () => {
+    const src = `
+      resource Conn { cleanup: drop_conn }
+      resource Conn { cleanup: drop_conn2 }
+      fn drop_conn(c: move Conn) -> ()
+      fn drop_conn2(c: move Conn) -> ()
+    `;
+    const { buildErrors } = buildTypeEnv(parse(src, "test.fit"));
+    expect(buildErrors.length).toBeGreaterThan(0);
+    expect(buildErrors[0].message).toMatch(/duplicate declaration of 'Conn'/);
+  });
+
+  it("two fns with the same name emits a BuildError", () => {
+    const src = `
+      fn foo() -> ()
+      fn foo() -> ()
+    `;
+    const { buildErrors } = buildTypeEnv(parse(src, "test.fit"));
+    expect(buildErrors.length).toBeGreaterThan(0);
+    expect(buildErrors[0].message).toMatch(/duplicate declaration of 'foo'/);
+  });
+
+  it("two enums with the same name emits a BuildError", () => {
+    const src = `
+      enum Status { Ok }
+      enum Status { Failed }
+    `;
+    const { buildErrors } = buildTypeEnv(parse(src, "test.fit"));
+    expect(buildErrors.length).toBeGreaterThan(0);
+    expect(buildErrors[0].message).toMatch(/duplicate declaration of 'Status'/);
+  });
+
+  it("two distinct top-level names produce no duplicate error", () => {
+    const src = `
+      resource Conn { cleanup: drop_conn }
+      fn drop_conn(c: move Conn) -> ()
+    `;
+    const { buildErrors } = buildTypeEnv(parse(src, "test.fit"));
+    const dupErrors = buildErrors.filter(e => e.message.includes("duplicate"));
+    expect(dupErrors).toHaveLength(0);
   });
 });

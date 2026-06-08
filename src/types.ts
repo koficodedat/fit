@@ -249,31 +249,54 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   const functions = new Map<string, FunctionSig>();
   const buildErrors: BuildError[] = [];
 
-  // Pass 1a: resources and aliases.
-  // Duplicate decl names silently last-write-win — unchanged from original behaviour.
-  for (const decl of program.decls) {
-    if (decl.kind === "resource") {
-      resources.set(decl.name, {
-        name: decl.name,
-        typeParam: decl.typeParam,
-        cleanup: decl.cleanup.fn,
-        fallback: decl.cleanup.fallback,
+  // Tracks the first declaration position of each top-level name for duplicate detection.
+  const nameOrigins = new Map<string, Pos>();
+
+  function checkDup(name: string, pos: Pos): boolean {
+    const prior = nameOrigins.get(name);
+    if (prior) {
+      buildErrors.push({
+        message: `duplicate declaration of '${name}' — declared in ${prior.file}:${prior.line}:${prior.col} and ${pos.file}:${pos.line}:${pos.col}`,
+        pos,
       });
-    } else if (decl.kind === "type_alias") {
-      aliases.set(decl.name, [...decl.members]); // defensive copy
+      return true;
     }
-    // capability and record decls are ignored; enums are handled in the dedicated loop below.
+    nameOrigins.set(name, pos);
+    return false;
+  }
+
+  // Pass 1a: resources, aliases, capabilities, records.
+  // import decls should be stripped by the loader; silently skip if any leak through.
+  // (Codegen uses a hard error for the same situation — here silence is intentional
+  //  because type-env construction is a pure analysis pass and should degrade gracefully.)
+  for (const decl of program.decls) {
+    if (decl.kind === "import") continue;
+    if (decl.kind === "resource") {
+      if (!checkDup(decl.name, decl.pos)) {
+        resources.set(decl.name, {
+          name: decl.name,
+          typeParam: decl.typeParam,
+          cleanup: decl.cleanup.fn,
+          fallback: decl.cleanup.fallback,
+        });
+      }
+    } else if (decl.kind === "type_alias") {
+      if (!checkDup(decl.name, decl.pos)) {
+        aliases.set(decl.name, [...decl.members]);
+      }
+    } else if (decl.kind === "capability" || decl.kind === "record") {
+      checkDup(decl.name, decl.pos);
+    }
   }
 
   // Two-pass boundary: resolveEnv excludes functions so resolveType cannot access the
   // partially-built functions map. Do NOT merge the passes.
   const resolveEnv: ResolveEnv = { resources, aliases };
 
-  // Enum resolution — payloads may reference resources, so this must follow resolveEnv construction.
-  // Uses narrow resolveEnv (payloads cannot circularly reference their own enum's linear flag).
-  // Also populates enumDecls: an enum is linear iff any non-colliding variant has a linear payload.
+  // Enum resolution pass.
   for (const decl of program.decls) {
     if (decl.kind === "enum") {
+      if (checkDup(decl.name, decl.pos)) continue;
       let isLinear = false;
       for (const variant of decl.variants) {
         const payload = variant.payload !== null ? resolveType(variant.payload, resolveEnv) : null;
@@ -292,35 +315,26 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   const wideResolveEnv: WideResolveEnv = { resources, aliases, enumDecls };
 
   // Pass 1b: build all function signatures.
-  // Externs (no body): use explicit annotation; emit BuildError for unannotated linear params.
-  // Bodied functions: use explicit annotation if present; otherwise placeholder lend
-  //   (pass-2 will re-infer by body inspection).
-  // Uses wideResolveEnv so enum names in return/param types resolve to { kind: "enum" }.
   for (const decl of program.decls) {
     if (decl.kind === "fn") {
+      if (checkDup(decl.name, decl.pos)) continue;
       const returnType = resolveType(decl.returnType, wideResolveEnv);
       const params: ResolvedParam[] = decl.params.map((p) => {
         const type_ = resolveType(p.type_, wideResolveEnv);
         let mode: ParamMode;
         if (type_.mode === "linear") {
           if (p.annotatedMode !== null) {
-            // Explicit annotation — used for both externs and bodied functions.
             mode = p.annotatedMode;
           } else if (decl.body === null) {
-            // Extern with a linear param and no annotation. Per spec §4 (amended):
-            // this is a compile error. Conservative lend fallback keeps type-checking going.
             buildErrors.push({
               message: `extern '${decl.name}' has linear parameter '${p.name}' with no move/lend annotation`,
               pos: decl.pos,
             });
             mode = "lend";
           } else {
-            // Bodied function, no annotation — placeholder lend for pass-2 re-inference.
             mode = "lend";
           }
         } else {
-          // Non-linear param: move/lend distinction is meaningless (nothing to consume).
-          // Annotation is accepted if present but not required. Always effectively lend.
           mode = "lend";
         }
         return { name: p.name, type_, mode };
@@ -328,29 +342,23 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
       functions.set(decl.name, {
         name: decl.name,
         params,
-        caps: [...decl.caps], // defensive copy
+        caps: [...decl.caps],
         returnType,
       });
     }
   }
 
   // Pass 2: re-infer modes for bodied functions whose resource params lack explicit annotation.
-  // Processes declarations in source order — correct for DAG call graphs (callee appears before
-  // caller, or caller has explicit annotation). Self-recursive and mutually-recursive functions
-  // require explicit annotations (single-pass, no fixed-point iteration in PoC).
   for (const decl of program.decls) {
     if (decl.kind === "fn" && decl.body !== null) {
-      const sig = functions.get(decl.name)!;
+      const sig = functions.get(decl.name);
+      if (!sig) continue; // duplicate — was skipped in pass 1b
       for (let i = 0; i < sig.params.length; i++) {
         const param = sig.params[i];
         const astParam = decl.params[i];
         if (param.type_.mode === "linear" && astParam.annotatedMode === null) {
-          // No explicit annotation: infer from body using current function map.
-          // Callee modes are already settled (externs from pass-1b; earlier bodied
-          // functions updated in-place by prior iterations of this loop).
           param.mode = inferParamModeFromBody(param.name, decl.body, functions);
         }
-        // If annotated: mode was set in pass-1b — leave it.
       }
     }
   }
