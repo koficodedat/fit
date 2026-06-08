@@ -29,7 +29,7 @@ describe("checker skeleton", () => {
   });
 
   it("CheckError has message and pos fields", () => {
-    const e: CheckError = { message: "test", pos: { line: 1, col: 1 } };
+    const e: CheckError = { message: "test", pos: { line: 1, col: 1, file: "test.fit" } };
     expect(e.message).toBe("test");
     expect(e.pos.line).toBe(1);
   });

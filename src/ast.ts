@@ -1,8 +1,9 @@
-export type Pos = { line: number; col: number };
+export type Pos = { line: number; col: number; file: string };
 
 export type Program = { decls: Decl[] };
 
 export type Decl =
+  | { kind: "import"; name: string; pos: Pos }
   | { kind: "capability"; name: string; pos: Pos }
   | { kind: "record"; name: string; fields: FieldDef[]; pos: Pos }
   | { kind: "enum"; name: string; variants: VariantDef[]; pos: Pos }

@@ -73,7 +73,7 @@ class Parser {
   }
 
   private pos(): Pos {
-    return { line: this.line, col: this.col };
+    return { line: this.line, col: this.col, file: this.filename };
   }
 
   private err(msg: string): never {

@@ -60,7 +60,7 @@ describe("types module data structures", () => {
   });
 
   it("exports BuildError type (build-time error from buildTypeEnv)", () => {
-    const e: BuildError = { message: "test", pos: { line: 1, col: 1 } };
+    const e: BuildError = { message: "test", pos: { line: 1, col: 1, file: "test.fit" } };
     expect(e.message).toBe("test");
   });
 
