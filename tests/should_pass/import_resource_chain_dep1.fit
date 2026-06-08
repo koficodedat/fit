@@ -1,4 +1,4 @@
-import import_resource_chain_b
+import import_resource_chain_dep2
 
 fn use_widget(w: move Widget) -> () {
     drop_widget(w)

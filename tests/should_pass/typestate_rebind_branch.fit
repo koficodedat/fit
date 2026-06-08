@@ -1,0 +1,21 @@
+// Both branches advance the typestate from Fresh to Ready via rebind.
+// mergeScopes should propagate the agreed typestate so the post-if use
+// with Ready is accepted (not a false-positive typestate mismatch).
+resource Conn<S> { cleanup: close_conn }
+fn close_conn(c: move Conn<Closing>) -> ()
+fn open_conn() -> Conn<Fresh>
+fn handshake(c: move Conn<Fresh>) -> Conn<Ready>
+fn cond() -> Bool
+fn send(c: lend Conn<Ready>) -> ()
+
+fn run() -> () {
+    let mut c = open_conn()
+    if cond() {
+        c = handshake(c)
+    } else {
+        c = handshake(c)
+    }
+    send(c)
+    let c = handshake(open_conn())
+    drop(c)
+}

@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { parse } from "./parser";
+import { parse, ParseError } from "./parser";
 import { Program, Decl, Pos } from "./ast";
 
 export type LoadError = { message: string; pos: Pos };
@@ -33,6 +33,7 @@ export function loadProgram(
     try {
       src = fs.readFileSync(norm, "utf8").replace(/^﻿/, "");
     } catch {
+      included.add(norm);
       loadErrors.push({
         message: `cannot read '${path.basename(norm)}'`,
         pos: importPos,
@@ -44,17 +45,11 @@ export function loadProgram(
     try {
       prog = parse(src, norm);
     } catch (e: unknown) {
-      // Parser throws "file:line:col: message" — extract the parts so printErrors
-      // doesn't double-format the location prefix.
-      const raw = e instanceof Error ? e.message : String(e);
-      const match = raw.match(/^(.+):(\d+):(\d+): (.+)$/s);
-      if (match) {
-        loadErrors.push({
-          message: match[4],
-          pos: { file: match[1], line: parseInt(match[2], 10), col: parseInt(match[3], 10) },
-        });
+      included.add(norm);
+      if (e instanceof ParseError) {
+        loadErrors.push({ message: e.rawMessage, pos: e.pos });
       } else {
-        loadErrors.push({ message: raw, pos: importPos });
+        loadErrors.push({ message: e instanceof Error ? e.message : String(e), pos: importPos });
       }
       return [];
     }

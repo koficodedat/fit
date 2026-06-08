@@ -306,7 +306,7 @@ describe("branch exhaustiveness", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn use_foo(f: move Foo) -> Foo
+      fn use_foo(f: move Foo) -> ()
       fn cond() -> String
       fn test() -> () {
         let f = make_foo()
@@ -360,7 +360,7 @@ describe("branch exhaustiveness", () => {
       resource Foo { cleanup: drop_foo }
       enum Choice { A, B }
       fn make_foo() -> Foo
-      fn use_foo(f: move Foo) -> Foo
+      fn use_foo(f: move Foo) -> ()
       fn get_choice() -> Choice
       fn test() -> () {
         let f = make_foo()
@@ -633,7 +633,7 @@ describe("stress tests — gaps and edge cases", () => {
       resource Foo { cleanup: drop_foo }
       enum Choice { A, B }
       fn make_foo() -> Foo
-      fn use_foo(f: move Foo) -> Foo
+      fn use_foo(f: move Foo) -> ()
       fn get_choice() -> Choice
       fn test() -> () {
         let f = make_foo()
@@ -642,7 +642,7 @@ describe("stress tests — gaps and edge cases", () => {
         }
       }
     `;
-    // Wildcard arm: no binds added. use_foo(f) moves f (Foo in return type).
+    // Wildcard arm: no binds added. use_foo(f) moves f.
     // Single arm, f moved in it. mergeScopes: all branches moved → ok.
     expect(check(parse(src, "test.fit"))).toEqual([]);
   });
@@ -672,7 +672,7 @@ describe("stress tests — gaps and edge cases", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn take_foo(f: move Foo) -> Foo
+      fn take_foo(f: move Foo) -> ()
       fn test() -> () {
         let a = make_foo()
         let b = make_foo()
@@ -1093,8 +1093,8 @@ describe("holistic gap coverage", () => {
   it("function with linear param consumed by move call — returns normally with no error", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
-      fn consume_foo(f: move Foo) -> Foo
-      fn test(f: Foo) -> Foo {
+      fn consume_foo(f: move Foo) -> ()
+      fn test(f: Foo) -> () {
         consume_foo(f)
       }
     `;

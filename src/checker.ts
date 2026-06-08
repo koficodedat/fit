@@ -70,9 +70,16 @@ function checkStmt(
   errors: CheckError[]
 ): void {
   switch (stmt.kind) {
-    case "expr":
-      checkExpr(stmt.expr, scope, caps, env, enclosingErr, enclosingFn, errors);
+    case "expr": {
+      const resultType = checkExpr(stmt.expr, scope, caps, env, enclosingErr, enclosingFn, errors);
+      if (resultType.mode === "linear") {
+        errors.push({
+          message: `linear return value discarded — call result must be bound or explicitly dropped`,
+          pos: stmt.pos,
+        });
+      }
       break;
+    }
     case "let": {
       const initType = checkExpr(stmt.init, scope, caps, env, enclosingErr, enclosingFn, errors);
       scope.set(stmt.name, { type_: initType, owned: true, moved: false });
@@ -355,7 +362,7 @@ function checkExpr(
           errors.push({ message: `not enough arguments to '${expr.fn}'`, pos: expr.pos });
           continue;
         }
-        checkExpr(arg, scope, caps, env, enclosingErr, enclosingFn, errors);
+        const argType = checkExpr(arg, scope, caps, env, enclosingErr, enclosingFn, errors);
 
         if (arg.kind === "var") {
           const binding = scope.get(arg.name);
@@ -377,6 +384,17 @@ function checkExpr(
           if (param.mode === "move" && binding?.type_.mode === "linear") {
             consumeBinding(arg.name, scope, errors, arg.pos);
           }
+        } else if (
+          param.type_.kind === "resource" &&
+          param.type_.typeState !== null &&
+          argType.kind === "resource" &&
+          argType.typeState !== null &&
+          argType.typeState !== param.type_.typeState
+        ) {
+          errors.push({
+            message: `argument has typestate '${argType.typeState}', expected '${param.type_.typeState}'`,
+            pos: arg.pos,
+          });
         }
       }
       for (let i = sig.params.length; i < expr.args.length; i++) {
@@ -432,7 +450,11 @@ function checkInnerScopeExit(
   exclude?: ReadonlySet<string>
 ): void {
   for (const [name, binding] of innerScope) {
-    if (outerScope.has(name)) continue;      // outer binding, not local
+    const outer = outerScope.get(name);
+    // Skip if the outer binding exists and is still live (not moved).
+    // If the outer was already moved before this scope, an inner `let` with the
+    // same name is a fresh local binding and must be checked independently.
+    if (outer && !outer.moved) continue;
     if (exclude?.has(name)) continue;         // handled separately (e.g., armLinearBinds)
     if (binding.owned && !binding.moved && binding.type_.mode === "linear") {
       errors.push({
@@ -468,6 +490,26 @@ function mergeScopes(preScope: Scope, branches: Scope[], errors: CheckError[], p
       result.get(name)!.moved = true; // suppress scope-exit double-report for same binding
     } else {
       result.get(name)!.moved = allMoved;
+      // Propagate typestate: if all surviving branches leave the binding in the same
+      // typestate, update the outer scope so subsequent code sees the new state.
+      const preType = preBind.type_;
+      if (!allMoved && preType.kind === "resource") {
+        const survivingTypestates = branches
+          .filter((_, i) => !movedIn[i])
+          .map((b) => {
+            const t = b.get(name)?.type_;
+            return t?.kind === "resource" ? t.typeState : preType.typeState;
+          });
+        if (survivingTypestates.length > 0 && survivingTypestates.every((s) => s === survivingTypestates[0])) {
+          const resultBind = result.get(name)!;
+          // Create a new type object — cloneScope is shallow, so the type_ is shared
+          // with env.functions; mutating it in-place would corrupt function signatures.
+          result.set(name, {
+            ...resultBind,
+            type_: { ...preType, typeState: survivingTypestates[0] },
+          });
+        }
+      }
     }
   }
   return result;

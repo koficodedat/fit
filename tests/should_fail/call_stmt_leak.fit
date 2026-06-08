@@ -1,0 +1,10 @@
+// Calling a function that returns a linear resource as a bare statement
+// discards the resource — this must be an error.
+resource Foo { cleanup: drop_foo }
+fn make_foo() -> Foo
+fn drop_foo(f: move Foo) -> ()
+fn transform(f: move Foo) -> Foo
+
+fn run() -> () {
+    transform(make_foo())
+}

@@ -13,6 +13,16 @@ import {
   MatchArm,
 } from "./ast";
 
+export class ParseError extends Error {
+  constructor(
+    message: string,
+    public readonly pos: Pos,
+    public readonly rawMessage: string
+  ) {
+    super(message);
+  }
+}
+
 class Parser {
   private src: string;
   private idx = 0;
@@ -78,7 +88,11 @@ class Parser {
   }
 
   private err(msg: string): never {
-    throw new Error(`${this.filename}:${this.line}:${this.col}: ${msg}`);
+    throw new ParseError(
+      `${this.filename}:${this.line}:${this.col}: ${msg}`,
+      { file: this.filename, line: this.line, col: this.col },
+      msg
+    );
   }
 
   private ident(): string {
@@ -237,6 +251,7 @@ class Parser {
       this.expect(":");
       this.skip();
       if (fname === "cleanup") {
+        if (cleanup !== null) this.err(`resource '${name}' declares 'cleanup' more than once`);
         const kw = this.ident();
         if (kw === "fallback") {
           cleanup = { fallback: true, fn: this.ident() };

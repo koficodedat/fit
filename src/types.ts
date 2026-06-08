@@ -174,15 +174,17 @@ function stmtConsumesVar(
       return exprConsumesVar(name, stmt.expr, fnMap);
     case "if":
       return (
+        exprConsumesVar(name, stmt.cond, fnMap) ||
         bodyConsumesVar(name, stmt.then, fnMap) ||
         bodyConsumesVar(name, stmt.else_, fnMap)
       );
     case "loop":
       return bodyConsumesVar(name, stmt.body, fnMap);
     case "match":
-      // The scrutinee is consumed if it's a direct variable reference and the checker
-      // will take ownership of it (linear match subjects are consumed by the match stmt).
+      // The match stmt itself takes ownership of a direct var scrutinee.
       if (stmt.expr.kind === "var" && stmt.expr.name === name) return true;
+      // A call scrutinee (e.g. transform(w)) may also consume the variable.
+      if (exprConsumesVar(name, stmt.expr, fnMap)) return true;
       return stmt.arms.some((arm) => bodyConsumesVar(name, arm.body, fnMap));
     case "break":
     case "select":

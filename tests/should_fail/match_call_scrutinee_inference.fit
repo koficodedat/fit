@@ -1,0 +1,14 @@
+// A resource passed to a move-mode call used as a match scrutinee
+// must be inferred as consumed. Using it again after the match is use-after-move.
+resource Token { cleanup: revoke_token }
+enum Status { Active, Revoked }
+fn revoke_token(t: move Token) -> ()
+fn classify(t: move Token) -> Status
+
+fn run(t: Token) -> () {
+    match classify(t) {
+        Active => {},
+        Revoked => {},
+    }
+    revoke_token(t)
+}

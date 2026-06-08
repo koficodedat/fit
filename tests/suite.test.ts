@@ -9,7 +9,7 @@ const SHOULD_FAIL_DIR = path.join(__dirname, "should_fail");
 // Dep files are imported by root test programs; they are not standalone tests.
 // Convention: file names containing "_dep" or ending in "_a.fit" / "_b.fit" are deps.
 function isDepFile(filename: string): boolean {
-  return /_dep/.test(filename) || /_(a|b)\.fit$/.test(filename);
+  return filename.includes("_dep");
 }
 
 function rootFitFiles(dir: string): string[] {

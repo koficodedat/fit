@@ -1,0 +1,14 @@
+// An inner `let` that shadows a name after the outer binding was moved
+// is a fresh linear binding and must be consumed before leaving the inner scope.
+resource Foo { cleanup: drop_foo }
+fn make_foo() -> Foo
+fn drop_foo(f: move Foo) -> ()
+fn consume(f: move Foo) -> ()
+
+fn run(outer: Foo) -> () {
+    consume(outer)
+    if () {
+        let outer = make_foo()
+    } else {
+    }
+}

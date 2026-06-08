@@ -1,4 +1,4 @@
-import import_duplicate_name_a
-import import_duplicate_name_b
+import import_duplicate_name_dep1
+import import_duplicate_name_dep2
 
 fn run() -> ()

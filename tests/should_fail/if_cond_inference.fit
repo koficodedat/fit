@@ -1,0 +1,14 @@
+// A resource consumed in the if-condition must be inferred as moved.
+// If inference misses the condition, the function appears to lend the param,
+// which would allow a second use after the call — that second use should
+// be a use-after-move error.
+resource Token { cleanup: revoke_token }
+fn revoke_token(t: move Token) -> ()
+fn check_and_consume(t: move Token) -> Bool
+
+fn run(t: Token) -> () {
+    if check_and_consume(t) {
+    } else {
+    }
+    revoke_token(t)
+}
