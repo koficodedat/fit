@@ -1,9 +1,10 @@
-import * as fs from "fs";
-import { parse } from "./parser";
+import { loadProgram } from "./loader";
 import { check } from "./checker";
 import { codegen } from "./codegen";
 
-function printErrors(errors: { pos: { line: number; col: number; file: string }; message: string }[]): void {
+function printErrors(
+  errors: { pos: { line: number; col: number; file: string }; message: string }[]
+): void {
   for (const err of errors) {
     console.error(`${err.pos.file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
   }
@@ -16,20 +17,10 @@ if (!cmd || !file) {
   process.exit(1);
 }
 
-let src: string;
-try {
-  src = fs.readFileSync(file, "utf8").replace(/^﻿/, "");
-} catch {
-  console.error(`fit: cannot read '${file}'`);
-  process.exit(1);
-}
+const { program, loadErrors } = loadProgram(file);
 
-let program;
-try {
-  program = parse(src, file);
-} catch (e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e);
-  console.error(`fit: parse error in '${file}': ${msg}`);
+if (loadErrors.length > 0) {
+  printErrors(loadErrors);
   process.exit(1);
 }
 
