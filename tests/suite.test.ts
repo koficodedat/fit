@@ -1,45 +1,55 @@
 import * as fs from "fs";
 import * as path from "path";
-import { parse } from "../src/parser";
+import { loadProgram } from "../src/loader";
 import { check } from "../src/checker";
 
 const SHOULD_PASS_DIR = path.join(__dirname, "should_pass");
 const SHOULD_FAIL_DIR = path.join(__dirname, "should_fail");
 
-function fitFiles(dir: string): string[] {
+// Dep files are imported by root test programs; they are not standalone tests.
+// Convention: file names containing "_dep" or ending in "_a.fit" / "_b.fit" are deps.
+function isDepFile(filename: string): boolean {
+  return /_dep/.test(filename) || /_(a|b)\.fit$/.test(filename);
+}
+
+function rootFitFiles(dir: string): string[] {
   if (!fs.existsSync(dir)) return [];
   return fs
     .readdirSync(dir)
-    .filter((f) => f.endsWith(".fit"))
+    .filter(f => f.endsWith(".fit") && !isDepFile(f))
     .sort();
 }
 
 describe("should_pass", () => {
-  const files = fitFiles(SHOULD_PASS_DIR);
+  const files = rootFitFiles(SHOULD_PASS_DIR);
   if (files.length === 0) {
     it("placeholder — no .fit files yet", () => {});
     return;
   }
   for (const file of files) {
     it(`${file} produces no errors`, () => {
-      const src = fs.readFileSync(path.join(SHOULD_PASS_DIR, file), "utf8");
-      const errors = check(parse(src, file));
-      expect(errors).toEqual([]);
+      const absPath = path.join(SHOULD_PASS_DIR, file);
+      const { program, loadErrors } = loadProgram(absPath);
+      expect(loadErrors).toEqual([]);
+      const checkErrors = check(program);
+      expect(checkErrors).toEqual([]);
     });
   }
 });
 
 describe("should_fail", () => {
-  const files = fitFiles(SHOULD_FAIL_DIR);
+  const files = rootFitFiles(SHOULD_FAIL_DIR);
   if (files.length === 0) {
     it("placeholder — no .fit files yet", () => {});
     return;
   }
   for (const file of files) {
     it(`${file} produces at least one error`, () => {
-      const src = fs.readFileSync(path.join(SHOULD_FAIL_DIR, file), "utf8");
-      const errors = check(parse(src, file));
-      expect(errors.length).toBeGreaterThan(0);
+      const absPath = path.join(SHOULD_FAIL_DIR, file);
+      const { program, loadErrors } = loadProgram(absPath);
+      const checkErrors = loadErrors.length > 0 ? [] : check(program);
+      const allErrors = [...loadErrors, ...checkErrors];
+      expect(allErrors.length).toBeGreaterThan(0);
     });
   }
 });
