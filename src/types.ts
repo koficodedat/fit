@@ -116,9 +116,8 @@ export function resolveType(ast: Type, env: ResolveEnv | WideResolveEnv): FitTyp
   }
 }
 
-// Known body-inference gaps: store-into-aggregate (`pool_add(pool, c)`) is undetected
-// unless pool_add's param is already marked move. Self-recursive functions must use an
-// explicit annotation — body-scan sees the recursive call with placeholder lend.
+// Known body-inference gap: store-into-aggregate (`pool_add(pool, c)`) is undetected
+// unless pool_add's param is already marked move.
 
 function exprConsumesVar(
   name: string,

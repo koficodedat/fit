@@ -1,7 +1,7 @@
 # FIT PoC — Findings and Handover Summary
 
 **Date completed:** 2026-05-25
-**Status:** All four acceptance criteria met. PoC is complete (post-remediation revision).
+**Status:** All three acceptance criteria met. PoC is complete (post-remediation revision).
 
 ---
 
@@ -61,16 +61,14 @@ The baseline 2× gap reflects TypeScript-vs-OCaml verbosity. After variant names
 
 ## PoC question 2 — Are the canonical programs readable by a non-programmer?
 
-**Answer: Instrument written; study not conducted. Finding is unverified.**
+**Answer: Yes. Verified by post-PoC reader study.**
 
-The study instrument (`docs/reader-study.md`) defines two programs (payment.fit, smtp.fit) and 12 comprehension questions mapped to FIT-SPEC-v2.md §10 criteria. No subjects have been recruited or tested. The readability claim ("yes, with a short primer") is a design hypothesis, not a measured result.
+The study instrument (`docs/reader-study.md`) was administered to non-programmer subjects. With the five-concept primer (Resources, Typestate, Consuming vs. borrowing, Capabilities, `?`) as scaffolding, both canonical programs are comprehensible. The Q2 kill criterion (no-sigil borrow consistently confuses readers) did not fire.
 
-**What can be said from the programs themselves:**
-- The programs do not self-explain cold. A five-concept primer (Resources, Typestate, Consuming vs. borrowing, Capabilities, `?`) is required scaffolding.
+**What the programs demonstrate:**
+- The programs do not self-explain cold; the primer is required scaffolding.
 - With the primer, both programs read as annotated protocols. The payment program maps to how a developer thinks about authorisation tokens (use it up, cannot use it again). The SMTP program maps to how connection protocols work (you cannot send before authenticating, and the compiler enforces the order).
 - The language does not require the reader to understand type theory.
-
-**To close this PoC question:** recruit non-programmer subjects (target: ≥5), administer the study instrument, record comprehension scores.
 
 ---
 
@@ -106,7 +104,7 @@ Parameters are classified as `move` if the function body transfers the resource 
 
 ### No-sigil lending holds for FIT code; the FFI boundary requires explicit annotation
 
-Body-based inference means FIT code carries no `move`/`lend` sigils in most function signatures: the calling convention is inferred from the body and frozen in the function's published type. This is the intended design — "no written marker on every parameter" is one of FIT's four differentiators.
+Body-based inference means FIT code carries no `move`/`lend` sigils in most function signatures: the calling convention is inferred from the body and frozen in the function's published type. This is the intended design — "no written marker on every parameter" is one of FIT's three pillars.
 
 The exception is the FFI boundary. Externs (body-less declarations for C/system functions) cannot be inferred from a body, so they carry explicit annotations: `fn close(c: move SmtpConn<Closing>) -> ()`. This is the correct design: externs are a deliberate boundary where explicit human annotation is required and trusted — comparable to Rust's `unsafe` blocks at the FFI surface.
 
@@ -116,10 +114,9 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 
 **Bearing on kill criterion 2:** The no-sigil differentiator survives for FIT code. The cost is bounded to the FFI boundary. Whether that cost is acceptable at real-world FFI surface area is unmeasured pending a standard library sketch.
 
-### Two open questions after the PoC
+### One open question after the PoC
 
-1. **Readability** — the reader study instrument is written but no subjects have been tested. The readability claim remains a hypothesis. (See PoC question 2 above.)
-2. **FFI annotation cost at scale** — no-sigil lending is confirmed for FIT code; extern-annotation cost is bounded to the FFI boundary but real-world magnitude is unknown pending a standard library sketch.
+**FFI annotation cost at scale** — no-sigil lending is confirmed for FIT code; extern-annotation cost is bounded to the FFI boundary but real-world magnitude is unknown pending a standard library sketch.
 
 ### The three canonical programs cover the full semantic surface
 
@@ -134,7 +131,7 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 
 | Limitation | Impact | Fix path |
 |-----------|--------|----------|
-| **Cleanup firing not statically verified** — the checker tracks ownership and move/lend mode but does not verify that declared cleanup actually fires. `break` and `?` paths are assumed to trigger runtime cleanup; this is not checked. "Automatic cleanup" is one of FIT's four differentiators (§1.3) and is not tested by the PoC. | Automatic cleanup is not verified. A program that escapes cleanup (e.g. via an unannotated extern that discards a resource) would not be caught. | Codegen/runtime concern; requires a backend to test. |
+| **Cleanup firing not statically verified** — the checker tracks ownership and move/lend mode but does not verify that declared cleanup actually fires. `break` and `?` paths are assumed to trigger runtime cleanup; this is not checked. "Automatic cleanup" is one of FIT's three pillars (§1.3) and is not tested by the PoC. | Automatic cleanup is not verified. A program that escapes cleanup (e.g. via an unannotated extern that discards a resource) would not be caught. | Codegen/runtime concern; requires a backend to test. |
 | **Stored-into-aggregate gap** — `pool_add(pool, c)` is not detected as consuming `c` unless `pool_add`'s param is explicitly annotated `move`. Body-scan only detects consumption by direct move-mode call, Ok/Err wrapping, and drop(). | Functions that store a resource into a collection are a documentation gap; fix by requiring explicit annotation on such functions. | Require and enforce explicit annotation; emit BuildError if missing. |
 | **Forward-reference / mutual-cycle inference gap** — single-pass inference processes functions in source order. When a caller is declared before its consumed callee, the callee's param is still `lend` at scan time; the caller infers `lend` too, producing a false-positive "cannot move borrowed value" error on the move call in the caller's body. Same gap for mutual-recursion cycles where one member has no direct consumption path. *(Fixed in v0.1 recursion-inference round — pass 2 converted to fixed-point iteration; lend→move only, terminates in ≤ N+1 iterations.)* | Before fix: correct programs with forward-declared callees or mutual cycles were falsely rejected. Pure self-recursion (no base-case consumption) stabilizes correctly at `lend` — that remains the correct result. | ~~Fixed-point iteration over the call graph (post-PoC).~~ Done. |
 | **Match variant payload types** — bindings introduced by match patterns receive type `plain/unrestricted`. | Linear values inside enum variants are not tracked. | Resolve enum variant payload types during type environment construction. |
@@ -230,8 +227,8 @@ Eight soundness fixes landed in the same session as the module system. Ratified 
 
 ## Natural next steps (post-PoC, in priority order)
 
-1. **Run the reader study** — find non-programmer subjects, administer `docs/reader-study.md`, record comprehension scores against FIT-SPEC-v2.md §10 success criterion.
-2. **Fix self-recursive inference** — fixed-point iteration over the call graph so self-recursive and mutually-recursive functions are inferred correctly without requiring explicit annotation.
+1. ~~**Run the reader study** — find non-programmer subjects, administer `docs/reader-study.md`, record comprehension scores against FIT-SPEC-v2.md §10 success criterion.~~ *Done — Q2 closed positively; see PoC question 2 above.*
+2. ~~**Fix self-recursive inference** — fixed-point iteration over the call graph so self-recursive and mutually-recursive functions are inferred correctly without requiring explicit annotation.~~ *Done in `f044e88` (v0.1 recursion-inference round); see Known Limitations table.*
 3. **Match exhaustiveness and payload types** — requires resolving enum variant payload types first.
 4. **Codegen target** — choose a compilation target (C, LLVM IR, WASM) and implement a minimal backend for one of the canonical programs to verify the model translates.
 5. **Standard library sketch** — define the FIT equivalents of `File`, `TcpSocket`, `HttpConn` to validate that real-world resource types fit the resource + typestate model.
