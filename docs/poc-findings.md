@@ -167,6 +167,51 @@ FIT earns its keep if those four differences produce meaningfully better program
 
 ---
 
+## v0.1 Phase — Module system (2026-06-08)
+
+### What landed
+
+Minimal flat-namespace module system: `import filename` loads all declarations from
+`filename.fit` in the same directory. Implemented in 6 pieces:
+
+- `Decl.import` AST variant + `Pos.file` field
+- `parseImport` + imports-first enforcement in parser
+- `src/loader.ts` — recursive resolution, memoization, diamond dedup, cycle detection
+- Duplicate-name detection in `buildTypeEnv` (also catches within-file duplicates)
+- `main.ts` wired to `loadProgram`
+- Codegen guard against leaked import decls
+
+### Line count (post-modules)
+
+| Component | Lines |
+|-----------|-------|
+| `src/ast.ts` | 60 |
+| `src/parser.ts` | 583 |
+| `src/checker.ts` | 495 |
+| `src/types.ts` | 367 |
+| `src/loader.ts` | 87 |
+| **Total** | **1592** |
+| Reference: Austral (OCaml) | ~600 |
+
+The module system added 113 lines across all components (+87 loader, +17 parser,
++8 types, +1 ast). The ratio is now ~2.65× Austral. Still within watch-item range;
+not at the 4× kill threshold.
+
+### Test count
+
+324 tests across 8 suites (up from 303). 21 new tests: 4 parser import tests,
+6 loader unit tests, 4 buildTypeEnv duplicate-detection tests, 7 suite integration
+tests (3 should_pass + 4 should_fail import programs).
+
+### Known v0.1 limitations (accepted, deferred to v0.2)
+
+- No visibility — all declarations accessible across files
+- No separate compilation — every `import` re-parses at each `fit check` invocation
+- No qualified imports, selective imports, or module hierarchy
+- Pos.file stores absolute paths — error messages may be verbose in deep directory trees
+
+---
+
 ## Natural next steps (post-PoC, in priority order)
 
 1. **Run the reader study** — find non-programmer subjects, administer `docs/reader-study.md`, record comprehension scores against FIT-SPEC-v2.md §10 success criterion.
