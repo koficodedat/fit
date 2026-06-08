@@ -140,7 +140,8 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 | **Match variant payload types** — bindings introduced by match patterns receive type `plain/unrestricted`. | Linear values inside enum variants are not tracked. | Resolve enum variant payload types during type environment construction. |
 | **`Ok(call_expr)` not consumed** — `Ok(make_foo())` does not consume the temporary; only `Ok(named_var)` does. | A linear resource returned from a call and immediately wrapped in Ok is not tracked. | Introduce a temporary-binding pass for call expression results. |
 | **No match exhaustiveness checking** | A `match` missing an enum variant compiles silently. | Add variant coverage check once enum variant types are tracked. |
-| **Duplicate declarations silently last-write-win** | No error for `resource Foo { ... }` declared twice. | First-pass duplicate detection in `buildTypeEnv`. |
+| **Duplicate declarations silently last-write-win** | No error for `resource Foo { ... }` declared twice. | First-pass duplicate detection in `buildTypeEnv`. *(Fixed in post-ship cleanup round.)* |
+| **Linear value buried inside an unrestricted shell** — a linear value is not directly visible when wrapped in an unrestricted container. Known surfaces: (1) wildcard match arm dropping a linear variant payload (`match e { _ => () }` where the active variant carries a resource); (2) `Result<LinearPayload, E>` returned from a call used as a bare statement — the call-as-statement check is narrow by design and does not recurse into the `Result.ok` slot; (3) any future enum-variant payload pattern that incompletely destructures. | All three surfaces silently leak a linear resource. The call-as-statement check (`checker.ts`) catches the directly-linear case; it does not catch the shell case. | Address together when exhaustiveness infrastructure lands (payload-type tracking through match arms). Until then: avoid `_` arms on linear enums, and bind Result-wrapped linear values via `let` rather than bare-call statements. |
 
 None of these limitations caused a false negative or false positive on the canonical programs or the 292-test suite, *provided* extern resource params carry explicit `move`/`lend` annotations.
 
@@ -203,12 +204,27 @@ not at the 4× kill threshold.
 6 loader unit tests, 4 buildTypeEnv duplicate-detection tests, 7 suite integration
 tests (3 should_pass + 4 should_fail import programs).
 
+### Post-ship cleanup round (2026-06-08) — ratified
+
+Eight soundness fixes landed in the same session as the module system. Ratified on the record:
+
+- **loader**: `included.add(norm)` added on read-failure and parse-failure paths — prevents duplicate errors on diamond paths through a broken dep.
+- **loader + parser**: structured `ParseError` class replaces fragile regex over the parser's error string; `instanceof` extraction in loader.
+- **parser**: duplicate `cleanup` field in a resource body is now a parse error.
+- **types** (`stmtConsumesVar` "if"): condition expression scanned — resources consumed in the condition were invisible to body-based inference.
+- **types** (`stmtConsumesVar` "match"): call-expression scrutinees scanned — only direct var scrutinee was previously detected.
+- **checker** (`checkInnerScopeExit`): guard tightened — inner `let` that shadows a moved outer binding is a fresh local and must be independently consumed.
+- **checker** (call sites): typestate check now also applies to non-var call-expression arguments via `argType` captured from `checkExpr`.
+- **checker** (`mergeScopes`): propagates the agreed post-branch typestate to the outer scope. Fix creates a new type object rather than in-place mutation, avoiding corruption of shared references into `env.functions`. This aliasing subtlety must be preserved.
+
+**Call-as-statement linear-return rule — decided narrow.** `checker.ts` case `"expr"` rejects calls used as bare statements whose return type is *directly* linear. The check does **not** recurse into unrestricted shells (`Result<LinearPayload, E>`, enum variants carrying linear payloads). The shell-leak class is deferred to the exhaustiveness round (see "linear-in-unrestricted-shell" in Known Limitations above).
+
 ### Known v0.1 limitations (accepted, deferred to v0.2)
 
 - No visibility — all declarations accessible across files
 - No separate compilation — every `import` re-parses at each `fit check` invocation
 - No qualified imports, selective imports, or module hierarchy
-- Pos.file stores absolute paths — error messages may be verbose in deep directory trees
+- ~~Pos.file stores absolute paths — error messages may be verbose in deep directory trees~~ *Fixed: CLI output relativizes to CWD at render time; `Pos.file` remains absolute internally.*
 
 ---
 

@@ -1,3 +1,4 @@
+import * as path from "path";
 import { loadProgram } from "./loader";
 import { check } from "./checker";
 import { codegen } from "./codegen";
@@ -6,7 +7,8 @@ function printErrors(
   errors: { pos: { line: number; col: number; file: string }; message: string }[]
 ): void {
   for (const err of errors) {
-    console.error(`${err.pos.file}:${err.pos.line}:${err.pos.col}: ${err.message}`);
+    const display = path.relative(process.cwd(), err.pos.file);
+    console.error(`${display}:${err.pos.line}:${err.pos.col}: ${err.message}`);
   }
 }
 
