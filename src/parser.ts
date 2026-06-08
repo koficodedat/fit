@@ -19,6 +19,7 @@ class Parser {
   private line = 1;
   private col = 1;
   private filename: string;
+  private sawNonImport = false;
 
   constructor(src: string, filename: string) {
     this.src = src;
@@ -121,21 +122,37 @@ class Parser {
       kw += this.advance();
     }
     switch (kw) {
+      case "import":
+        if (this.sawNonImport) {
+          this.err("import declarations must appear before all other declarations");
+        }
+        return this.parseImport(p);
       case "record":
+        this.sawNonImport = true;
         return this.parseRecord(p);
       case "enum":
+        this.sawNonImport = true;
         return this.parseEnum(p);
       case "resource":
+        this.sawNonImport = true;
         return this.parseResource(p);
       case "type":
+        this.sawNonImport = true;
         return this.parseTypeAlias(p);
       case "capability":
+        this.sawNonImport = true;
         return this.parseCapability(p);
       case "fn":
+        this.sawNonImport = true;
         return this.parseFn(p);
       default:
         this.err(`unexpected top-level keyword '${kw}'`);
     }
+  }
+
+  private parseImport(pos: Pos): Decl {
+    const name = this.ident();
+    return { kind: "import", name, pos };
   }
 
   private parseCapability(pos: Pos): Decl {

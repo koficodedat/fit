@@ -526,3 +526,37 @@ describe("parameterized field types — AST shape", () => {
     }
   });
 });
+
+describe("import declarations", () => {
+  it("parses a single import decl", () => {
+    const prog = parse("import session", "root.fit");
+    expect(prog.decls).toHaveLength(1);
+    const d = prog.decls[0];
+    expect(d.kind).toBe("import");
+    if (d.kind === "import") {
+      expect(d.name).toBe("session");
+    }
+  });
+
+  it("parses multiple import decls before fn", () => {
+    const prog = parse("import session\nimport transport\nfn run() -> ()", "root.fit");
+    expect(prog.decls).toHaveLength(3);
+    expect(prog.decls[0].kind).toBe("import");
+    expect(prog.decls[1].kind).toBe("import");
+    expect(prog.decls[2].kind).toBe("fn");
+  });
+
+  it("import after fn throws parse error", () => {
+    expect(() => parse("fn foo() -> ()\nimport other", "root.fit")).toThrow(
+      /import declarations must appear before/
+    );
+  });
+
+  it("import records the importing file in pos", () => {
+    const prog = parse("import foo", "myfile.fit");
+    const d = prog.decls[0];
+    if (d.kind === "import") {
+      expect(d.pos.file).toBe("myfile.fit");
+    }
+  });
+});
