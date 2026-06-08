@@ -473,3 +473,56 @@ test("parse smtp.fit — run_session body", () => {
   // let c x4, deliver_batch?, let c = quit?, close(c) = 7 stmts
   expect(fn_.body).toHaveLength(7);
 });
+
+describe("parameterized field types — AST shape", () => {
+  it("record field with parameterized resource type has non-null typeArg", () => {
+    const src = `
+      resource TcpSocket<S> { fd: SocketFd, cleanup: tcp_close }
+      fn tcp_close(s: move TcpSocket) -> ()
+      record HttpConn {
+          sock: TcpSocket<Connected>,
+          host: String,
+      }
+    `;
+    const prog = parse(src, "test.fit");
+    const rec = prog.decls.find((d) => d.kind === "record" && d.name === "HttpConn");
+    if (rec?.kind !== "record") throw new Error("missing HttpConn");
+    const sockField = rec.fields.find((f) => f.name === "sock");
+    expect(sockField).toBeDefined();
+    expect(sockField!.type_.kind).toBe("named");
+    if (sockField!.type_.kind === "named") {
+      expect(sockField!.type_.name).toBe("TcpSocket");
+      expect(sockField!.type_.typeArg).not.toBeNull();
+      expect(sockField!.type_.typeArg?.kind).toBe("named");
+      if (sockField!.type_.typeArg?.kind === "named") {
+        expect(sockField!.type_.typeArg.name).toBe("Connected");
+      }
+    }
+  });
+
+  it("resource field with parameterized resource type has non-null typeArg", () => {
+    const src = `
+      resource TcpSocket<S> { fd: SocketFd, cleanup: tcp_close }
+      fn tcp_close(s: move TcpSocket) -> ()
+      resource HttpConn<S> {
+          sock: TcpSocket<Connected>,
+          cleanup: http_close,
+      }
+      fn http_close(c: move HttpConn) -> ()
+    `;
+    const prog = parse(src, "test.fit");
+    const res = prog.decls.find((d) => d.kind === "resource" && d.name === "HttpConn");
+    if (res?.kind !== "resource") throw new Error("missing HttpConn");
+    const sockField = res.fields.find((f) => f.name === "sock");
+    expect(sockField).toBeDefined();
+    expect(sockField!.type_.kind).toBe("named");
+    if (sockField!.type_.kind === "named") {
+      expect(sockField!.type_.name).toBe("TcpSocket");
+      expect(sockField!.type_.typeArg).not.toBeNull();
+      expect(sockField!.type_.typeArg?.kind).toBe("named");
+      if (sockField!.type_.typeArg?.kind === "named") {
+        expect(sockField!.type_.typeArg.name).toBe("Connected");
+      }
+    }
+  });
+});

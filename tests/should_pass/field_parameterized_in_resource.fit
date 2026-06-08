@@ -1,0 +1,13 @@
+// Regression guard: a resource (not record) field whose type is a parameterized resource.
+// Same shape as field_parameterized_resource.fit but with resource HttpConn<S> as outer.
+resource TcpSocket<S> {
+    fd:      SocketFd,
+    cleanup: tcp_force_close,
+}
+fn tcp_force_close(s: move TcpSocket) -> ()
+
+resource HttpConn<S> {
+    sock:    TcpSocket<Connected>,
+    cleanup: http_force_close,
+}
+fn http_force_close(c: move HttpConn) -> ()

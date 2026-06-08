@@ -1,0 +1,15 @@
+// Regression guard: a record field whose type is a parameterized resource.
+// Parser already supports TcpSocket<Connected> in field position — typeArg
+// is populated on the Type.named node. No checker change; nested typestate
+// composition is not verified (deferred per PoC charter).
+resource TcpSocket<S> {
+    fd:      SocketFd,
+    cleanup: tcp_force_close,
+}
+fn tcp_force_close(s: move TcpSocket) -> ()
+
+resource HttpConn {
+    sock:    TcpSocket<Connected>,
+    cleanup: http_force_close,
+}
+fn http_force_close(c: move HttpConn) -> ()
