@@ -351,15 +351,33 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   }
 
   // Pass 2: re-infer modes for bodied functions whose resource params lack explicit annotation.
-  for (const decl of program.decls) {
-    if (decl.kind === "fn" && decl.body !== null) {
-      const sig = functions.get(decl.name);
-      if (!sig) continue; // duplicate — was skipped in pass 1b
-      for (let i = 0; i < sig.params.length; i++) {
-        const param = sig.params[i];
-        const astParam = decl.params[i];
-        if (param.type_.mode === "linear" && astParam.annotatedMode === null) {
-          param.mode = inferParamModeFromBody(param.name, decl.body, functions);
+  // Fixed-point iteration: each flip is lend → move only (monotonic), the lattice is finite
+  // ({lend,move} per param), so the loop terminates in at most N+1 iterations where N is the
+  // number of unannotated linear params. The guard (param.mode === "lend") enforces monotonicity —
+  // we never revert move → lend. This correctly handles forward references (a caller declared
+  // before its consumed callee) and mutually-recursive cycles where one member has no direct
+  // consumption path of its own.
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const decl of program.decls) {
+      if (decl.kind === "fn" && decl.body !== null) {
+        const sig = functions.get(decl.name);
+        if (!sig) continue; // duplicate — was skipped in pass 1b
+        for (let i = 0; i < sig.params.length; i++) {
+          const param = sig.params[i];
+          const astParam = decl.params[i];
+          if (
+            param.type_.mode === "linear" &&
+            astParam.annotatedMode === null &&
+            param.mode === "lend"
+          ) {
+            const newMode = inferParamModeFromBody(param.name, decl.body, functions);
+            if (newMode === "move") {
+              param.mode = "move";
+              changed = true;
+            }
+          }
         }
       }
     }

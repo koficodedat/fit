@@ -1,0 +1,11 @@
+resource Channel { cleanup: force_close }
+fn force_close(c: move Channel) -> ()
+fn done(c: lend Channel) -> Bool
+
+fn ping(c: Channel) -> () {
+    pong(c)
+}
+
+fn pong(c: Channel) -> () {
+    if done(c) { force_close(c) } else { ping(c) }
+}

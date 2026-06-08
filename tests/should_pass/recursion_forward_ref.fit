@@ -1,0 +1,10 @@
+resource Token { cleanup: revoke }
+fn revoke(t: move Token) -> ()
+
+fn outer(t: Token) -> () {
+    inner(t)
+}
+
+fn inner(t: Token) -> () {
+    revoke(t)
+}
