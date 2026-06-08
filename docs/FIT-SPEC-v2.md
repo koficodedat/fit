@@ -53,8 +53,12 @@ FIT's *core thesis* (linear types + capabilities + no GC/exceptions/ambient + sm
 readable) is, candidly, **convergent with Austral**, which already ships it. FIT is only
 worth being its own language if its **distinctive choices** pay off:
 1. **Opt-in compile-time protocol-state safety (typestate)** that Austral does not enforce.
-2. **Lending as the default, sigil-free, non-escaping calling convention** (vs. Austral's
-   explicit `borrow ... as ... in region` construct).
+2. **Lending inferred within FIT code, declared at the FFI boundary** (vs. Austral's
+   explicit `borrow ... as ... in region` construct in all positions). Within FIT code,
+   move-vs-lend is inferred from function bodies and not written at call sites or in
+   bodied function signatures. At the FFI boundary, externs require explicit
+   `move`/`lend` annotation because the information is not available from a bodyless
+   declaration (see §4).
 3. **Automatic, declared-at-type cleanup** (vs. Austral's explicit destructors).
 4. **Capabilities as compile-time-resolved signature requirements** (vs. explicit value
    args).
@@ -62,6 +66,14 @@ worth being its own language if its **distinctive choices** pay off:
 The PoC exists to test whether (1)–(4) are genuinely better, or just different. If they are
 merely different — or worse by FIT's own no-magic standard — the honest outcome is to
 contribute to Austral or stop. **This possibility must remain live throughout.**
+
+**Note on pillar #2 (post-stdlib-probe, 2026-05-28):** The original pillar wording
+implied a sigil-free property end-to-end. The stdlib probe established that the property
+holds for FIT code calling FIT code but degrades at the FFI surface, where externs
+require explicit `move`/`lend` annotation. The differentiator vs. Austral remains real
+(Austral requires explicit borrow syntax for FIT-to-FIT calls; FIT does not), but is
+narrower than the original wording suggested. Pillar #2 has been revised to match the
+actual rule. See `docs/stdlib-probe-findings.md` for the evidence.
 
 ---
 
@@ -197,8 +209,10 @@ Variant names need not be globally unique across enums. A bare variant name `V` 
   Because it cannot escape, the borrow begins and ends at the call boundary — **so there are
   no lifetimes to track.** This is the entire reason FIT avoids Rust's borrow-checker
   complexity: escape is what forces lifetime tracking, and FIT forbids escape.
-- **[AMENDED] No sigil — correct inference rule.** Lend-vs-consume is inferred from the
-  function body, not from the shape of the return type. The rule:
+- **[AMENDED] Inference rule for bodied functions.** Lend-vs-consume is inferred from the
+  function body for any function with a body. (Externs have no body and use explicit
+  annotation; see the extern annotation bullet below.) Inference is not from the shape of
+  the return type. The rule:
   - A parameter is a **move (consumes)** if the function body transfers it onward on any
     path — returns it (in any form or typestate), stores it into an aggregate, or passes it
     to another consuming function.
