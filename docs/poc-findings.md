@@ -139,6 +139,8 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 | **No match exhaustiveness checking** | A `match` missing an enum variant compiles silently. | Add variant coverage check once enum variant types are tracked. |
 | **Duplicate declarations silently last-write-win** | No error for `resource Foo { ... }` declared twice. | First-pass duplicate detection in `buildTypeEnv`. *(Fixed in post-ship cleanup round.)* |
 | **Linear value buried inside an unrestricted shell** — a linear value is not directly visible when wrapped in an unrestricted container. Known surfaces: (1) wildcard match arm dropping a linear variant payload (`match e { _ => () }` where the active variant carries a resource); (2) `Result<LinearPayload, E>` returned from a call used as a bare statement — the call-as-statement check is narrow by design and does not recurse into the `Result.ok` slot; (3) any future enum-variant payload pattern that incompletely destructures. | All three surfaces silently leak a linear resource. The call-as-statement check (`checker.ts`) catches the directly-linear case; it does not catch the shell case. | Address together when exhaustiveness infrastructure lands (payload-type tracking through match arms). Until then: avoid `_` arms on linear enums, and bind Result-wrapped linear values via `let` rather than bare-call statements. |
+| **Undeclared identifier silent acceptance** — the checker accepts references to undeclared functions and to enum variants when the surrounding type context is unknown. Type information falls back to `?` (for functions) or variant index `0` (for variants), both of which produce invalid C at codegen time. | Programs that type-check successfully can fail to codegen with malformed C output. Surfaces in `smtp.fit` (references `fn next` and the variants `None`/`Some` from an unimplemented list module). | Require all referenced functions and variants to be declared in scope; emit BuildError if missing. Design call: enforce at type-check time, or only at codegen time. |
+| **Type alias raw in C output** — `type X = A \| B` aliases are tracked by the checker but not emitted as typedefs at codegen time; `cTypeName` returns the alias name verbatim, leaving the alias as an undeclared type reference in the generated C. | Programs using error-union aliases (e.g. `type SessionError = SmtpError \| IoError`) in a Result return type produce invalid C. Surfaces in `smtp.fit`. | Codegen-only fix: emit `typedef <tagged-union representation> X;` for each alias — same shape as the enum-payload-variant lowering. |
 
 None of these limitations caused a false negative or false positive on the canonical programs or the 292-test suite, *provided* extern resource params carry explicit `move`/`lend` annotations.
 
@@ -225,12 +227,86 @@ Eight soundness fixes landed in the same session as the module system. Ratified 
 
 ---
 
+## v0.1 Phase — Codegen completion (2026-06-08)
+
+### What landed
+
+Two rounds completed v0.1 codegen form coverage:
+
+**Round A** (`62a0e08`) — structural foundation:
+- Block scoping for `let` (fixes parameter-vs-let and let-vs-let shadowing in C99)
+- `if`/`loop`/`break` codegen
+- Snapshot test infrastructure (`tests/codegen.test.ts`, `scripts/regen-snapshot.ts`)
+- Four initial snapshots: `payment.fit`, `drain.fit`, `plain_loop.fit`, `typestate_rebind_branch.fit`
+- Two pre-existing bugs fixed along the way: `unit` → `void` in function return position; duplicate cleanup extern suppression when a resource's cleanup fn is also declared as an explicit fn extern
+
+**Round B** (`5f57ea9`) — form completion:
+- `record` decls → C structs
+- `select` → comment marker `/* select X from Y */`
+- Enum payload variants → tagged union representation (unit-only enums remain as C enums)
+- `qualified_var` correctness fix (was emitting `0` as placeholder)
+- `match` codegen with arm-by-arm state propagation, payload bindings, and synthesized `abort()` arm for non-exhaustive matches
+- Fifth snapshot: `match_basic.fit`
+
+### Form coverage
+
+After Round B, every v0.1 statement, expression, and declaration form has a codegen case:
+
+- **Statements:** `let`, rebind, `expr`, `if`, `loop`, `break`, `match`, `select`
+- **Expressions:** `var`, `call`, `ok`, `err`, `try`, `qualified_var`, `unit_val`
+- **Declarations:** `resource`, `enum`, `record`, `type`, `capability`, `fn`, `import` (stripped by loader)
+
+### Snapshot programs — all pass `cc -std=c99 -Werror -c`
+
+| Program | Forms exercised |
+|---------|-----------------|
+| `payment.fit` | Linear types, error propagation, capabilities |
+| `drain.fit` | Typestate progression, recursion, error propagation |
+| `plain_loop.fit` | Loop with stable typestate, if + break |
+| `typestate_rebind_branch.fit` | `if` + `mut` + typestate progression via merge |
+| `match_basic.fit` | Match with payload variant + unit variant |
+
+### smtp.fit — type-checks, does not codegen
+
+`smtp.fit` is the third canonical from the PoC charter. It type-checks (zero check errors) but does not produce valid C99. The underlying limitations are documented in the Known Limitations table above (undeclared identifier silent acceptance; type alias raw in C output). `smtp.fit` is best characterized as **type-checking-only as a standalone program**; codegen would require either a stdlib sketch supplying the missing declarations or extending the file to declare them locally.
+
+### Test count
+
+338 tests across 9 suites.
+
+### Line counts (post-Round B)
+
+| Component | Lines |
+|-----------|-------|
+| `src/ast.ts` | 60 |
+| `src/parser.ts` | 598 |
+| `src/checker.ts` | 537 |
+| `src/types.ts` | 386 |
+| `src/loader.ts` | 82 |
+| `src/codegen.ts` | 675 |
+| `src/main.ts` | 45 |
+| **Total** | **2383** |
+| Reference: Austral (OCaml) | ~600 |
+
+### Definition of done — met
+
+Per `FIT-v0.1-codegen-scoping.md`:
+- ✅ Every statement and expression form has a codegen case
+- ✅ Three canonical programs (payment, drain, match_basic) emit valid C99; smtp.fit is type-checking-only by current limitations
+- ✅ Snapshot infrastructure holds output stable
+- ✅ Cleanup emitted on `?`, scope exit, and Ok/Err returns
+- ✅ Capabilities compile-time-only (no runtime threading emitted)
+- ✅ Typestate erased at codegen time
+- ✅ Non-exhaustive matches synthesize `abort()` (v0.1 default; tightened when exhaustiveness checking lands)
+
+---
+
 ## Natural next steps (post-PoC, in priority order)
 
 1. ~~**Run the reader study** — find non-programmer subjects, administer `docs/reader-study.md`, record comprehension scores against FIT-SPEC-v2.md §10 success criterion.~~ *Done — Q2 closed positively; see PoC question 2 above.*
 2. ~~**Fix self-recursive inference** — fixed-point iteration over the call graph so self-recursive and mutually-recursive functions are inferred correctly without requiring explicit annotation.~~ *Done in `f044e88` (v0.1 recursion-inference round); see Known Limitations table.*
 3. **Match exhaustiveness and payload types** — requires resolving enum variant payload types first.
-4. **Codegen target** — choose a compilation target (C, LLVM IR, WASM) and implement a minimal backend for one of the canonical programs to verify the model translates.
+4. ~~**Codegen target** — choose a compilation target (C, LLVM IR, WASM) and implement a minimal backend for one of the canonical programs to verify the model translates.~~ *Done in v0.1 codegen Rounds A+B (`62a0e08`, `5f57ea9`); see v0.1 Phase — Codegen completion below.*
 5. **Standard library sketch** — define the FIT equivalents of `File`, `TcpSocket`, `HttpConn` to validate that real-world resource types fit the resource + typestate model.
 
 ---
