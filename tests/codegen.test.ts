@@ -1,3 +1,5 @@
+import * as fs from "fs";
+import * as path from "path";
 import { parse } from "../src/parser";
 import { codegen } from "../src/codegen";
 
@@ -86,7 +88,7 @@ describe("function body emission", () => {
     expect(out).toContain("free_widget(w);");
     // Codegen emits `extern void free_widget(Widget v);` from the resource section,
     // so slice to the function body and verify only one free_widget call there.
-    const bodyStart = out.indexOf("int run(");
+    const bodyStart = out.indexOf("void run(");
     const body = out.slice(bodyStart);
     expect((body.match(/free_widget/g) || []).length).toBe(1);
   });
@@ -133,4 +135,82 @@ describe("function body emission", () => {
     // token was moved to execute_charge — no void_token cleanup in process_payment body
     expect(body).not.toContain("void_token");
   });
+});
+
+// Snapshot tests: for each *.fit.c.expected file found under tests/, run loader+checker+codegen
+// and compare the output against the checked-in expected file.
+//
+// To add a snapshot test: drop a program.fit and program.fit.c.expected into tests/should_pass/.
+// To regenerate a snapshot: npx ts-node scripts/regen-snapshot.ts <path/to/program.fit>
+
+import { loadProgram } from "../src/loader";
+import { check } from "../src/checker";
+
+function findSnapshotPairs(dir: string): { fitPath: string; expectedPath: string }[] {
+  const pairs: { fitPath: string; expectedPath: string }[] = [];
+  if (!fs.existsSync(dir)) return pairs;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      pairs.push(...findSnapshotPairs(fullPath));
+    } else if (entry.name.endsWith(".fit.c.expected")) {
+      const fitPath = fullPath.slice(0, -".c.expected".length);
+      pairs.push({ fitPath, expectedPath: fullPath });
+    }
+  }
+  return pairs;
+}
+
+const TESTS_DIR = path.join(__dirname);
+const snapshotPairs = findSnapshotPairs(TESTS_DIR);
+
+describe("codegen snapshots", () => {
+  if (snapshotPairs.length === 0) {
+    it("placeholder — no .fit.c.expected files found", () => {});
+    return;
+  }
+
+  for (const { fitPath, expectedPath } of snapshotPairs) {
+    const label = path.relative(TESTS_DIR, fitPath);
+    it(label, () => {
+      if (!fs.existsSync(fitPath)) {
+        throw new Error(
+          `codegen snapshot: no .fit file for ${fitPath} — orphaned .c.expected?`
+        );
+      }
+      const { program, loadErrors } = loadProgram(fitPath);
+      if (loadErrors.length > 0) {
+        throw new Error(
+          `codegen test for ${label} failed: load errors:\n` +
+            loadErrors.map((e) => `  ${e.message}`).join("\n")
+        );
+      }
+      const checkErrors = check(program);
+      if (checkErrors.length > 0) {
+        throw new Error(
+          `codegen test for ${label} failed: program does not type-check:\n` +
+            checkErrors.map((e) => `  ${e.message}`).join("\n")
+        );
+      }
+      const actual = codegen(program);
+      const expected = fs.readFileSync(expectedPath, "utf-8");
+      if (actual !== expected) {
+        // Build a simple line-diff for the failure message.
+        const aLines = actual.split("\n");
+        const eLines = expected.split("\n");
+        const maxLen = Math.max(aLines.length, eLines.length);
+        const diffLines: string[] = [];
+        for (let i = 0; i < maxLen; i++) {
+          const a = aLines[i] ?? "<missing>";
+          const e = eLines[i] ?? "<missing>";
+          if (a !== e) diffLines.push(`  line ${i + 1}:\n    got:      ${a}\n    expected: ${e}`);
+        }
+        throw new Error(
+          `codegen snapshot mismatch for ${label}.\n` +
+            `To regenerate: npx ts-node scripts/regen-snapshot.ts ${fitPath}\n` +
+            `Differences:\n${diffLines.slice(0, 20).join("\n")}`
+        );
+      }
+    });
+  }
 });

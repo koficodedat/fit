@@ -1,0 +1,32 @@
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+  int sock;
+} Conn;
+extern void force_close(Conn v);
+
+typedef enum {
+  ConnState_Ready = 0
+} ConnState;
+
+typedef int String;
+
+extern void send_msg(Conn c, String msg);
+extern String get_msg(void);
+extern String should_stop(void);
+
+void send_loop(Conn c) {
+  while (1) {
+    {
+      String msg = get_msg();
+      send_msg(c, msg);
+      if (should_stop()) {
+        break;
+      } else {
+      }
+    }
+  }
+  return;
+}
+

@@ -1,0 +1,31 @@
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+} Conn;
+
+typedef int Bool;
+
+extern void close_conn(Conn c);
+extern Conn open_conn(void);
+extern Conn handshake(Conn c);
+extern Bool cond(void);
+extern void send(Conn c);
+
+void run(void) {
+  {
+    Conn c = open_conn();
+    if (cond()) {
+      c = handshake(c);
+    } else {
+      c = handshake(c);
+    }
+    send(c);
+    {
+      Conn c = handshake(open_conn());
+      close_conn(c);
+    }
+  }
+  return;
+}
+

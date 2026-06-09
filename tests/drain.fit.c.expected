@@ -1,0 +1,66 @@
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+  int id;
+} Channel;
+extern void force_close_channel(Channel v);
+
+typedef enum {
+  ChannelState_Open = 0,
+  ChannelState_Draining = 1
+} ChannelState;
+
+typedef enum {
+  DrainError_Closed = 0,
+  DrainError_IoError = 1
+} DrainError;
+
+typedef struct {
+  int tag;
+  union { Channel ok; DrainError err; };
+} R_Channel_DrainError;
+
+typedef struct {
+  int tag;
+  union { int ok; DrainError err; };
+} R_int_DrainError;
+
+extern R_Channel_DrainError open_channel(void);
+extern R_Channel_DrainError recv(Channel c);
+extern R_int_DrainError on_close(Channel c);
+
+R_int_DrainError drain(Channel c) {
+  {
+    R_Channel_DrainError _t0 = recv(c);
+    if (_t0.tag != 0) {
+      R_int_DrainError _err = {1, {.err = _t0.err}};
+      return _err;
+    }
+    Channel c = _t0.ok;
+    R_int_DrainError _t1 = on_close(c);
+    if (_t1.tag != 0) {
+      R_int_DrainError _err = {1, {.err = _t1.err}};
+      return _err;
+    }
+    return (R_int_DrainError){0, {.ok = 0}};
+  }
+}
+
+R_int_DrainError run(void) {
+  {
+    R_Channel_DrainError _t0 = open_channel();
+    if (_t0.tag != 0) {
+      R_int_DrainError _err = {1, {.err = _t0.err}};
+      return _err;
+    }
+    Channel c = _t0.ok;
+    R_int_DrainError _t1 = drain(c);
+    if (_t1.tag != 0) {
+      R_int_DrainError _err = {1, {.err = _t1.err}};
+      return _err;
+    }
+    return (R_int_DrainError){0, {.ok = 0}};
+  }
+}
+

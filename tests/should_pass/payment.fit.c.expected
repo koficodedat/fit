@@ -1,0 +1,63 @@
+#include <stdio.h>
+#include <string.h>
+
+typedef struct {
+  int token_id;
+} AuthToken;
+extern void void_token(AuthToken v);
+
+typedef enum {
+  PaymentError_Declined = 0,
+  PaymentError_NetworkFail = 1,
+  PaymentError_InvalidCard = 2,
+  PaymentError_AlreadyCharged = 3
+} PaymentError;
+
+typedef int CardDetails;
+typedef int Receipt;
+typedef int Cents;
+
+typedef struct {
+  int tag;
+  union { AuthToken ok; PaymentError err; };
+} R_AuthToken_PaymentError;
+
+typedef struct {
+  int tag;
+  union { Receipt ok; PaymentError err; };
+} R_Receipt_PaymentError;
+
+typedef struct {
+  int tag;
+  union { int ok; PaymentError err; };
+} R_int_PaymentError;
+
+extern R_AuthToken_PaymentError validate_card(CardDetails card);
+extern R_Receipt_PaymentError execute_charge(AuthToken token, Cents amount);
+extern R_int_PaymentError audit_log(Receipt receipt);
+
+R_Receipt_PaymentError process_payment(CardDetails card, Cents amount) {
+  {
+    R_AuthToken_PaymentError _t0 = validate_card(card);
+    if (_t0.tag != 0) {
+      R_Receipt_PaymentError _err = {1, {.err = _t0.err}};
+      return _err;
+    }
+    AuthToken token = _t0.ok;
+    {
+      R_Receipt_PaymentError _t1 = execute_charge(token, amount);
+      if (_t1.tag != 0) {
+        R_Receipt_PaymentError _err = {1, {.err = _t1.err}};
+        return _err;
+      }
+      Receipt receipt = _t1.ok;
+      R_int_PaymentError _t2 = audit_log(receipt);
+      if (_t2.tag != 0) {
+        R_Receipt_PaymentError _err = {1, {.err = _t2.err}};
+        return _err;
+      }
+      return (R_Receipt_PaymentError){0, {.ok = receipt}};
+    }
+  }
+}
+

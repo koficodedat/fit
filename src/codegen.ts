@@ -1,8 +1,8 @@
 import { Program, Decl, Stmt, Expr } from "./ast";
 import { FitType, TypeEnv, buildTypeEnv } from "./types";
 
-// Maps a FitType to a C type name.
-// unit → int, plain → name, resource → name, alias → name, result → R_<ok>_<err>
+// Maps a FitType to a C type name (for values: struct fields, union members, variables).
+// unit → int (placeholder; use cRetTypeName for function return types).
 export function cTypeName(t: FitType): string {
   switch (t.kind) {
     case "unit":
@@ -22,6 +22,15 @@ export function cTypeName(t: FitType): string {
       throw new Error(`cTypeName: unhandled FitType kind`);
     }
   }
+}
+
+// For function return positions: unit → void (idiomatic C); all others → cTypeName.
+function cRetTypeName(t: FitType): string {
+  return t.kind === "unit" ? "void" : cTypeName(t);
+}
+
+function ind(depth: number): string {
+  return "  ".repeat(depth);
 }
 
 // Collects all distinct Result FitTypes reachable from function signatures.
@@ -101,7 +110,17 @@ export function codegen(program: Program): string {
   out.push("#include <string.h>");
   out.push("");
 
-  // Resource struct typedefs + cleanup function extern declarations
+  // Collect fn names that have explicit declarations, so we can suppress duplicate
+  // resource-level cleanup externs when the cleanup fn is already declared as fn.
+  const explicitFnDecls = new Set<string>(
+    program.decls
+      .filter(d => d.kind === "fn" && d.body === null)
+      .map(d => (d as { name: string }).name)
+  );
+
+  // Resource struct typedefs + cleanup function extern declarations.
+  // Cleanup extern is suppressed when the fn is explicitly declared — avoids the
+  // conflict between `extern void cleanup(R v)` and the fn's own extern declaration.
   for (const decl of program.decls) {
     if (decl.kind === "resource") {
       out.push("typedef struct {");
@@ -109,7 +128,9 @@ export function codegen(program: Program): string {
         out.push(`  int ${f.name};`);
       }
       out.push(`} ${decl.name};`);
-      out.push(`extern void ${decl.cleanup.fn}(${decl.name} v);`);
+      if (!explicitFnDecls.has(decl.cleanup.fn)) {
+        out.push(`extern void ${decl.cleanup.fn}(${decl.name} v);`);
+      }
       out.push("");
     }
   }
@@ -170,7 +191,7 @@ function emitExternDecl(
   env: TypeEnv
 ): string {
   const sig = env.functions.get(decl.name)!;
-  const retT = cTypeName(sig.returnType);
+  const retT = cRetTypeName(sig.returnType);
   const params = sig.params
     .map((p) => `${cTypeName(p.type_)} ${p.name}`)
     .join(", ");
@@ -182,15 +203,15 @@ type LiveVar = { name: string; cleanupFn: string };
 
 // Mutable state threaded through body emission.
 type EmitState = {
-  live: LiveVar[];                 // owned resources in declaration order
-  varTypes: Map<string, FitType>; // all declared locals (for type lookup)
-  tmp: { n: number };              // fresh temp-variable counter
-  returned: boolean;               // true once a return has been emitted
+  live: LiveVar[];                  // owned resources in declaration order
+  varTypes: Map<string, FitType>;  // all declared locals (for type lookup)
+  tmp: { n: number };               // fresh temp-variable counter (shared across branches)
+  returned: boolean;                // true once a return has been emitted
 };
 
 function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, env: TypeEnv): string {
   const sig    = env.functions.get(decl.name)!;
-  const retT   = cTypeName(sig.returnType);
+  const retT   = cRetTypeName(sig.returnType);
   const params = sig.params
     .map(p => `${cTypeName(p.type_)} ${p.name}`)
     .join(", ");
@@ -198,7 +219,7 @@ function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, env: TypeEnv): st
   const out: string[] = [];
   out.push(`${retT} ${decl.name}(${params || "void"}) {`);
 
-  // Seed live and varTypes from move-mode resource parameters
+  // Seed live and varTypes from move-mode resource parameters.
   const live: LiveVar[] = [];
   const varTypes = new Map<string, FitType>();
   for (const p of sig.params) {
@@ -209,15 +230,17 @@ function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, env: TypeEnv): st
   }
 
   const state: EmitState = { live, varTypes, tmp: { n: 0 }, returned: false };
-  emitStmts(decl.body, env, sig.returnType, state, out);
+  emitStmts(decl.body, 1, env, sig.returnType, state, out);
 
   if (!state.returned) {
-    // Scope exit: clean up remaining owned resources in reverse declaration order
+    // Scope exit: clean up any still-owned move-mode resources in reverse order.
+    // For checker-passing programs this is always empty (all resources are consumed
+    // before exit); the loop is a safety net.
     for (const v of [...state.live].reverse()) {
-      out.push(`  ${v.cleanupFn}(${v.name});`);
+      out.push(`${ind(1)}${v.cleanupFn}(${v.name});`);
     }
     if (sig.returnType.kind === "unit") {
-      out.push("  return 0;");
+      out.push(`${ind(1)}return;`);
     }
   }
 
@@ -226,40 +249,63 @@ function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, env: TypeEnv): st
   return out.join("\n");
 }
 
+// Block-scoping rule: each `let` wraps itself and all subsequent siblings in a new
+// C block (`{...}`). The binding is emitted INSIDE the block (at depth+1), safely
+// nested below any parameter or prior let at the current depth. This ensures that
+// subsequent `let`s with the same name are valid C99 — each is in a strictly inner
+// scope relative to the conflicting outer name.
+//
+// For checker-passing programs this does not affect cleanup correctness: all resources
+// are consumed before function exit, so `emitFnImpl`'s scope-exit cleanup emits
+// nothing. The `?` and Ok/Err return paths emit cleanup for state.live inline, at
+// whatever depth they run, and all live vars are accessible from inner blocks.
 function emitStmts(
   stmts: Stmt[],
+  depth: number,
   env: TypeEnv,
   retType: FitType,
   state: EmitState,
   out: string[]
 ): void {
-  for (const stmt of stmts) {
+  for (let i = 0; i < stmts.length; i++) {
     if (state.returned) break;
-    emitStmt(stmt, env, retType, state, out);
+    const stmt = stmts[i];
+
+    if (stmt.kind === "let") {
+      // Open a block; place the binding and all remaining stmts inside it.
+      out.push(`${ind(depth)}{`);
+      const { cExpr, fitType } = emitExpr(stmt.init, depth + 1, env, retType, state, out);
+      out.push(`${ind(depth + 1)}${cTypeName(fitType)} ${stmt.name} = ${cExpr};`);
+      state.varTypes.set(stmt.name, fitType);
+      if (fitType.kind === "resource") {
+        // Remove any same-name entry: let-shadowing a live resource is permitted by
+        // the checker (the old resource is leaked); codegen matches the checker's
+        // decision rather than inventing cleanup the spec doesn't require.
+        const existingIdx = state.live.findIndex(v => v.name === stmt.name);
+        if (existingIdx >= 0) state.live.splice(existingIdx, 1);
+        state.live.push({ name: stmt.name, cleanupFn: fitType.cleanup });
+      }
+      emitStmts(stmts.slice(i + 1), depth + 1, env, retType, state, out);
+      out.push(`${ind(depth)}}`);
+      return;
+    }
+
+    emitStmt(stmt, depth, env, retType, state, out);
   }
 }
 
 function emitStmt(
   stmt: Stmt,
+  depth: number,
   env: TypeEnv,
   retType: FitType,
   state: EmitState,
   out: string[]
 ): void {
   switch (stmt.kind) {
-    case "let": {
-      const { cExpr, fitType } = emitExpr(stmt.init, env, retType, state, out);
-      out.push(`  ${cTypeName(fitType)} ${stmt.name} = ${cExpr};`);
-      state.varTypes.set(stmt.name, fitType);
-      if (fitType.kind === "resource") {
-        state.live.push({ name: stmt.name, cleanupFn: fitType.cleanup });
-      }
-      break;
-    }
-
     case "rebind": {
-      const { cExpr, fitType } = emitExpr(stmt.expr, env, retType, state, out);
-      out.push(`  ${stmt.name} = ${cExpr};`);
+      const { cExpr, fitType } = emitExpr(stmt.expr, depth, env, retType, state, out);
+      out.push(`${ind(depth)}${stmt.name} = ${cExpr};`);
       state.varTypes.set(stmt.name, fitType);
       if (fitType.kind === "resource") {
         const idx = state.live.findIndex(v => v.name === stmt.name);
@@ -275,33 +321,102 @@ function emitStmt(
     case "expr": {
       const expr = stmt.expr;
       if (expr.kind === "ok" || expr.kind === "err") {
-        // Return expression: clean up live vars first, then return
+        // Return expression: clean up live vars first, then return.
         for (const v of [...state.live].reverse()) {
-          out.push(`  ${v.cleanupFn}(${v.name});`);
+          out.push(`${ind(depth)}${v.cleanupFn}(${v.name});`);
         }
         state.live.length = 0;
-        const { cExpr } = emitExpr(expr, env, retType, state, out);
-        out.push(`  return ${cExpr};`);
+        const { cExpr } = emitExpr(expr, depth, env, retType, state, out);
+        out.push(`${ind(depth)}return ${cExpr};`);
         state.returned = true;
       } else {
-        const { cExpr } = emitExpr(stmt.expr, env, retType, state, out);
-        // try: emitExpr already emitted the if-block
-        // drop: emitExpr already emitted cleanup call; cExpr is "(void)0"
-        // regular calls: emit as statement
+        const { cExpr } = emitExpr(stmt.expr, depth, env, retType, state, out);
+        // try: emitExpr already emitted the if-block inline
+        // drop: emitExpr already emitted the cleanup call; cExpr is "(void)0"
+        // regular calls: emit as a statement
         if (stmt.expr.kind !== "try" && cExpr !== "(void)0") {
-          out.push(`  ${cExpr};`);
+          out.push(`${ind(depth)}${cExpr};`);
         }
       }
       break;
     }
 
+    case "if": {
+      const { cExpr: condExpr } = emitExpr(stmt.cond, depth, env, retType, state, out);
+      const preLive = [...state.live];
+
+      // Then-branch: clone live; share tmp and varTypes.
+      const thenState: EmitState = {
+        live: [...preLive],
+        varTypes: state.varTypes,
+        tmp: state.tmp,
+        returned: false,
+      };
+      out.push(`${ind(depth)}if (${condExpr}) {`);
+      emitStmts(stmt.then, depth + 1, env, retType, thenState, out);
+
+      // Else-branch: restore live to pre-if snapshot.
+      const elseState: EmitState = {
+        live: [...preLive],
+        varTypes: state.varTypes,
+        tmp: state.tmp,
+        returned: false,
+      };
+      out.push(`${ind(depth)}} else {`);
+      emitStmts(stmt.else_, depth + 1, env, retType, elseState, out);
+      out.push(`${ind(depth)}}`);
+
+      // Propagate the post-branch live set. By checker invariant, both branches
+      // agree on which linears are live after the if (branch-consumption-consistency).
+      if (!thenState.returned && !elseState.returned) {
+        state.live = thenState.live;
+      } else if (thenState.returned && !elseState.returned) {
+        state.live = elseState.live;
+      } else if (!thenState.returned && elseState.returned) {
+        state.live = thenState.live;
+      } else {
+        // Both branches returned — outer scope is also done.
+        state.returned = true;
+      }
+      break;
+    }
+
+    case "loop": {
+      out.push(`${ind(depth)}while (1) {`);
+      // Clone live for the body. By checker invariant (loop-typestate-invariant),
+      // linears introduced inside the body are consumed before break or end-of-body,
+      // so the externally-visible live set is unchanged after the loop.
+      const bodyState: EmitState = {
+        live: [...state.live],
+        varTypes: state.varTypes,
+        tmp: state.tmp,
+        returned: false,
+      };
+      emitStmts(stmt.body, depth + 1, env, retType, bodyState, out);
+      out.push(`${ind(depth)}}`);
+      // Outer live is unchanged (loop-external resources persist across iterations).
+      break;
+    }
+
+    case "break": {
+      // Loop-local linears are consumed by checker invariant; no cleanup emitted here.
+      out.push(`${ind(depth)}break;`);
+      break;
+    }
+
+    case "select": {
+      // Compile-time only — no runtime representation.
+      break;
+    }
+
     default:
-      throw new Error(`codegen spike: unsupported stmt kind '${(stmt as any).kind}'`);
+      throw new Error(`codegen: unsupported stmt kind '${(stmt as any).kind}'`);
   }
 }
 
 function emitExpr(
   expr: Expr,
+  depth: number,
   env: TypeEnv,
   retType: FitType,
   state: EmitState,
@@ -319,8 +434,8 @@ function emitExpr(
     }
 
     case "ok": {
-      const inner = emitExpr(expr.expr, env, retType, state, out);
-      // Moving a resource into Ok consumes it
+      const inner = emitExpr(expr.expr, depth, env, retType, state, out);
+      // Moving a resource into Ok consumes it from the live set.
       if (expr.expr.kind === "var" && inner.fitType.kind === "resource") {
         const idx = state.live.findIndex(v => v.name === (expr.expr as { name: string }).name);
         if (idx >= 0) state.live.splice(idx, 1);
@@ -330,13 +445,13 @@ function emitExpr(
     }
 
     case "err": {
-      const inner = emitExpr(expr.expr, env, retType, state, out);
+      const inner = emitExpr(expr.expr, depth, env, retType, state, out);
       const cName = cTypeName(retType);
       return { cExpr: `(${cName}){1, {.err = ${inner.cExpr}}}`, fitType: retType };
     }
 
     case "call": {
-      // drop(x) is a builtin: emit cleanup, remove from live
+      // drop(x) is a builtin: emit cleanup call, remove from live.
       if (expr.fn === "drop") {
         const arg = expr.args[0];
         if (arg.kind === "var") {
@@ -344,7 +459,7 @@ function emitExpr(
           if (idx >= 0) {
             const v = state.live[idx];
             state.live.splice(idx, 1);
-            out.push(`  ${v.cleanupFn}(${arg.name});`);
+            out.push(`${ind(depth)}${v.cleanupFn}(${arg.name});`);
           }
         }
         return { cExpr: "(void)0", fitType: { kind: "unit", mode: "unrestricted" } };
@@ -352,7 +467,7 @@ function emitExpr(
 
       const sig = env.functions.get(expr.fn);
       if (!sig) {
-        const argExprs = expr.args.map(a => emitExpr(a, env, retType, state, out).cExpr);
+        const argExprs = expr.args.map(a => emitExpr(a, depth, env, retType, state, out).cExpr);
         return {
           cExpr: `${expr.fn}(${argExprs.join(", ")})`,
           fitType: { kind: "plain", mode: "unrestricted", name: "?" },
@@ -363,9 +478,9 @@ function emitExpr(
       for (let i = 0; i < sig.params.length && i < expr.args.length; i++) {
         const arg   = expr.args[i];
         const param = sig.params[i];
-        const { cExpr: argCExpr } = emitExpr(arg, env, retType, state, out);
+        const { cExpr: argCExpr } = emitExpr(arg, depth, env, retType, state, out);
         argExprs.push(argCExpr);
-        // Move-mode resource arg: ownership transfers — remove from caller's live
+        // Move-mode resource arg: ownership transfers — remove from caller's live.
         if (param.mode === "move" && param.type_.kind === "resource" && arg.kind === "var") {
           const idx = state.live.findIndex(v => v.name === arg.name);
           if (idx >= 0) state.live.splice(idx, 1);
@@ -379,21 +494,21 @@ function emitExpr(
     }
 
     case "try": {
-      const inner = emitExpr(expr.expr, env, retType, state, out);
+      const inner = emitExpr(expr.expr, depth, env, retType, state, out);
       const tmpName = `_t${state.tmp.n++}`;
       const innerCType = cTypeName(inner.fitType);
 
-      out.push(`  ${innerCType} ${tmpName} = ${inner.cExpr};`);
+      out.push(`${ind(depth)}${innerCType} ${tmpName} = ${inner.cExpr};`);
 
-      // Error branch: clean up all still-owned live vars, then return Err
-      out.push(`  if (${tmpName}.tag != 0) {`);
+      // Error branch: clean up all still-owned live vars, then return Err.
+      out.push(`${ind(depth)}if (${tmpName}.tag != 0) {`);
       for (const v of [...state.live].reverse()) {
-        out.push(`    ${v.cleanupFn}(${v.name});`);
+        out.push(`${ind(depth + 1)}${v.cleanupFn}(${v.name});`);
       }
       const retCType = cTypeName(retType);
-      out.push(`    ${retCType} _err = {1, {.err = ${tmpName}.err}};`);
-      out.push(`    return _err;`);
-      out.push(`  }`);
+      out.push(`${ind(depth + 1)}${retCType} _err = {1, {.err = ${tmpName}.err}};`);
+      out.push(`${ind(depth + 1)}return _err;`);
+      out.push(`${ind(depth)}}`);
 
       const okFitType = inner.fitType.kind === "result"
         ? inner.fitType.ok
@@ -402,7 +517,7 @@ function emitExpr(
     }
 
     case "qualified_var":
-      // Qualified variant reference in expression position — not a value in FIT.
+      // Round B: emit EnumName_VariantName. Round A placeholder: emit 0.
       return { cExpr: "0", fitType: { kind: "plain", mode: "unrestricted", name: expr.name } };
 
     default: {
