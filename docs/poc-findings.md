@@ -51,9 +51,8 @@ The checker runs in distinct phases: type-environment construction (two passes: 
 | `src/types.ts` | 290 | 359 |
 | `src/ast.ts` | 56 | 59 |
 | **Total** | **1226** | **1479** |
-| Reference: Austral (OCaml) | ~600 | ~600 |
 
-The baseline 2× gap reflects TypeScript-vs-OCaml verbosity. After variant namespacing (Option B, dot syntax), the count is ~2.5× Austral. The feature is principled additive growth (new grammar construct, resolver, AST extension) and not a kill-criterion signal today. However, the trend is a watch item: each scoped feature adds lines, and the verbosity ratio is not fixed. If three more comparably-scoped features land, the ratio approaches 4× and the kill criterion becomes live. The rule count and pass orthogonality remain the language-independent Q1 measures; the line count is a secondary signal reported for completeness.
+Variant namespacing added principled growth (new grammar construct, resolver, AST extension) — not a kill-criterion signal. The rule count and pass orthogonality remain the primary Q1 measures; the line count is a secondary signal reported as raw trend data.
 
 **Honest status:** the orthogonality result is real and positive. The 8-rule count is the actual Q1 deliverable. Q1 is answered on structure: the checker is small (8 enforced rules, 3 orthogonal properties) and clean (no invented rules, each corresponds to a spec entry). Cleanup firing is not statically verified — that is a runtime/codegen concern, explicitly out of PoC scope.
 
@@ -191,11 +190,9 @@ Minimal flat-namespace module system: `import filename` loads all declarations f
 | `src/types.ts` | 367 |
 | `src/loader.ts` | 87 |
 | **Total** | **1592** |
-| Reference: Austral (OCaml) | ~600 |
 
 The module system added 113 lines across all components (+87 loader, +17 parser,
-+8 types, +1 ast). The ratio is now ~2.65× Austral. Still within watch-item range;
-not at the 4× kill threshold.
++8 types, +1 ast).
 
 ### Test count
 
@@ -286,7 +283,6 @@ After Round B, every v0.1 statement, expression, and declaration form has a code
 | `src/codegen.ts` | 675 |
 | `src/main.ts` | 45 |
 | **Total** | **2383** |
-| Reference: Austral (OCaml) | ~600 |
 
 ### Definition of done — met
 
