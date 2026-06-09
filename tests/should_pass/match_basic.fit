@@ -1,0 +1,19 @@
+resource Handle {
+    fd:      Int,
+    cleanup: close_handle,
+}
+
+enum Reading {
+    Data(Handle),
+    Eof,
+}
+
+fn read_one(h: move Handle) -> Reading
+fn close_handle(h: move Handle) -> ()
+
+fn process(h: Handle) -> () {
+    match read_one(h) {
+        Data(next) => { close_handle(next) },
+        Eof        => { },
+    }
+}

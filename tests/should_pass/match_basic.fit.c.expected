@@ -1,0 +1,36 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef struct {
+  int fd;
+} Handle;
+
+typedef struct {
+  int tag;
+  union {
+    Handle Data;
+  };
+} Reading;
+
+extern Reading read_one(Handle h);
+extern void close_handle(Handle h);
+
+void process(Handle h) {
+  {
+    Reading _t0 = read_one(h);
+    switch (_t0.tag) {
+    case 0: {
+      Handle next = _t0.Data;
+      close_handle(next);
+      break;
+    }
+    case 1: {
+      break;
+    }
+    default: abort(); break;
+    }
+  }
+  return;
+}
+
