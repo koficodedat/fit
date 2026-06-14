@@ -1,0 +1,10 @@
+resource Conn { fd: Int, cleanup: close }
+fn close(c: move Conn) -> ()
+fn open() -> Result<Conn, ()>
+
+fn handle() -> () {
+    match open() {
+        Ok(c) => { close(c) },
+        Err(e) => { },
+    }
+}

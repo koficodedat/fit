@@ -1,0 +1,13 @@
+resource Handle { fd: Int, cleanup: close }
+fn close(h: move Handle) -> ()
+
+enum Container { HasOne(Handle), Empty }
+
+fn make() -> Container
+
+fn leak() -> () {
+    match make() {
+        Empty => { },
+        _ => { },
+    }
+}

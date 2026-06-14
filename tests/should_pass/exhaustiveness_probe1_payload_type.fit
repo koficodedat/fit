@@ -1,0 +1,11 @@
+resource Handle { fd: Int, cleanup: close }
+fn close(h: move Handle) -> ()
+
+enum Container { HasOne(Handle), Empty }
+
+fn unpack(c: Container) -> () {
+    match c {
+        HasOne(h) => { close(h) },
+        Empty => { },
+    }
+}
