@@ -1,0 +1,23 @@
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+record Pool {
+    capacity: Int,
+}
+
+fn close(c: move Conn) -> ()
+
+fn helper_a(p: lend Pool, c: Conn) -> () {
+    helper_b(p, c)
+}
+
+fn helper_b(p: lend Pool, c: Conn) -> () {
+    helper_a(p, c)
+}
+
+fn caller(p: Pool, c: Conn) -> () {
+    helper_a(p, c)
+    close(c)
+}

@@ -1,0 +1,19 @@
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+record Pool {
+    capacity: Int,
+}
+
+fn close(c: move Conn) -> ()
+fn pool_add_extern(p: lend Pool, c: move Conn) -> ()
+
+fn pool_add(p: Pool, c: Conn) -> () {
+    pool_add_extern(p, c)
+}
+
+fn caller(p: Pool, c: Conn) -> () {
+    pool_add(p, c)
+}

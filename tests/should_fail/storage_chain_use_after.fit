@@ -1,0 +1,24 @@
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+record Pool {
+    capacity: Int,
+}
+
+fn close(c: move Conn) -> ()
+fn primitive_add(p: lend Pool, c: move Conn) -> ()
+
+fn middle_layer(p: Pool, c: Conn) -> () {
+    primitive_add(p, c)
+}
+
+fn pool_add(p: Pool, c: Conn) -> () {
+    middle_layer(p, c)
+}
+
+fn caller(p: Pool, c: Conn) -> () {
+    pool_add(p, c)
+    close(c)
+}
