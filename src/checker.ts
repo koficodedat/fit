@@ -159,11 +159,18 @@ function checkStmt(
         env.enumDecls.has(subjectType.name);
 
       const branchScopes: Scope[] = [];
+      const covered = new Set<string>();
+      let hasWildcard = false;
       for (const arm of stmt.arms) {
         const armScope = cloneScope(scope);
         // Names of linear payload bindings introduced by this arm — must be checked after
         // checkStmts because mergeScopes only walks preScope, not arm-local bindings.
         const armLinearBinds: string[] = [];
+        if (arm.pattern.kind === "wildcard") {
+          hasWildcard = true;
+        } else if (arm.pattern.kind === "variant") {
+          covered.add(arm.pattern.name);
+        }
         if (arm.pattern.kind === "variant") {
           const resolved = resolveVariant(arm.pattern.name, arm.pattern.qualifier, env);
           const variantInfo = resolved.result;
@@ -240,6 +247,24 @@ function checkStmt(
           }
         }
         branchScopes.push(armScope);
+      }
+      if (subjectIsKnownEnum && (subjectType.kind === "plain" || subjectType.kind === "enum")) {
+        const enumInfo = env.enumDecls.get(subjectType.name)!;
+        const uncovered = enumInfo.variants.filter(v => !covered.has(v.name));
+        if (!hasWildcard && uncovered.length > 0) {
+          errors.push({
+            message: `match on '${subjectType.name}' is not exhaustive — missing variant(s): ${uncovered.map(v => v.name).join(", ")}`,
+            pos: stmt.pos,
+          });
+        } else if (hasWildcard) {
+          const linearUncovered = uncovered.filter(v => v.payload !== null && v.payload.mode === "linear");
+          if (linearUncovered.length > 0) {
+            errors.push({
+              message: `wildcard arm covers variant(s) with linear payload: ${linearUncovered.map(v => v.name).join(", ")} — destructure explicitly to consume`,
+              pos: stmt.pos,
+            });
+          }
+        }
       }
       const merged = mergeScopes(scope, branchScopes, errors, stmt.pos);
       for (const [k, v] of merged) scope.set(k, v);

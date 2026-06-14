@@ -21,7 +21,7 @@ export type FitType =
   | { kind: "alias"; mode: "unrestricted"; name: string; members: string[] } // member names are unresolved — look up via ResolveEnv.aliases
   | { kind: "enum"; mode: "linear" | "unrestricted"; name: string };
 
-export type EnumInfo = { name: string; isLinear: boolean };
+export type EnumInfo = { name: string; isLinear: boolean; variants: { name: string; payload: FitType | null }[] };
 
 export type VariantInfo = { enumName: string; payload: FitType | null };
 
@@ -299,6 +299,7 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
     if (decl.kind === "enum") {
       if (checkDup(decl.name, decl.pos)) continue;
       let isLinear = false;
+      const declVariants: { name: string; payload: FitType | null }[] = [];
       for (const variant of decl.variants) {
         const payload = variant.payload !== null ? resolveType(variant.payload, resolveEnv) : null;
         const info: VariantInfo = { enumName: decl.name, payload };
@@ -306,8 +307,9 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
         existing.push(info);
         enums.set(variant.name, existing);
         if (payload !== null && payload.mode === "linear") isLinear = true;
+        declVariants.push({ name: variant.name, payload });
       }
-      enumDecls.set(decl.name, { name: decl.name, isLinear });
+      enumDecls.set(decl.name, { name: decl.name, isLinear, variants: declVariants });
     }
   }
 
