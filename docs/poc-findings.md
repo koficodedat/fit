@@ -141,7 +141,7 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 | **Undeclared identifier silent acceptance** — the checker accepts references to undeclared functions and to enum variants when the surrounding type context is unknown. Type information falls back to `?` (for functions) or variant index `0` (for variants), both of which produce invalid C at codegen time. | Programs that type-check successfully can fail to codegen with malformed C output. Surfaces in `smtp.fit` (references `fn next` and the variants `None`/`Some` from an unimplemented list module). | Require all referenced functions and variants to be declared in scope; emit BuildError if missing. Design call: enforce at type-check time, or only at codegen time. |
 | **Type alias raw in C output** — `type X = A \| B` aliases are tracked by the checker but not emitted as typedefs at codegen time; `cTypeName` returns the alias name verbatim, leaving the alias as an undeclared type reference in the generated C. | Programs using error-union aliases (e.g. `type SessionError = SmtpError \| IoError`) in a Result return type produce invalid C. Surfaces in `smtp.fit`. | Codegen-only fix: emit `typedef <tagged-union representation> X;` for each alias — same shape as the enum-payload-variant lowering. |
 
-None of these limitations caused a false negative or false positive on the canonical programs or the 292-test suite, *provided* extern resource params carry explicit `move`/`lend` annotations.
+None of these limitations caused a false negative or false positive on the canonical programs or the test suite, *provided* extern resource params carry explicit `move`/`lend` annotations.
 
 ---
 
