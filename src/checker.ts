@@ -173,11 +173,36 @@ function checkStmt(
         }
         if (arm.pattern.kind === "variant") {
           const resolved = resolveVariant(arm.pattern.name, arm.pattern.qualifier, env);
-          const variantInfo = resolved.result;
+          let variantInfo = resolved.result;
+          const resolvedError = resolved.error ?? "";
+          let unifiedEmitted = false;
+
+          if (subjectIsKnownEnum && (subjectType.kind === "plain" || subjectType.kind === "enum")) {
+            const enumName = subjectType.name;
+            if (variantInfo !== null && variantInfo.enumName !== enumName) {
+              errors.push({
+                message: `variant '${arm.pattern.name}' is not declared by enum '${enumName}'`,
+                pos: stmt.pos,
+              });
+              variantInfo = null;
+              unifiedEmitted = true;
+            } else if (variantInfo === null) {
+              const candidates = env.enums.get(arm.pattern.name) ?? [];
+              const scrutineeIsCandidate = candidates.some(c => c.enumName === enumName);
+              if (!scrutineeIsCandidate) {
+                errors.push({
+                  message: `variant '${arm.pattern.name}' is not declared by enum '${enumName}'`,
+                  pos: stmt.pos,
+                });
+                unifiedEmitted = true;
+              }
+            }
+          }
+
           if (variantInfo === null) {
             // Emit error if: subject is a known enum (existing gate) OR a qualifier was given (always check explicit refs)
-            if (subjectIsKnownEnum || arm.pattern.qualifier !== null) {
-              errors.push({ message: resolved.error, pos: stmt.pos });
+            if (!unifiedEmitted && (subjectIsKnownEnum || arm.pattern.qualifier !== null)) {
+              errors.push({ message: resolvedError, pos: stmt.pos });
             }
             for (const bind of arm.pattern.binds) {
               armScope.set(bind, {

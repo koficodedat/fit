@@ -1,0 +1,12 @@
+enum Color { Red, Green, Blue }
+enum Fruit { Apple, Banana, Cherry }
+
+fn pick(c: Color) -> () {
+    match c {
+        Red => { },
+        Banana => { },
+        Fruit.Cherry => { },
+        Green => { },
+        Blue => { },
+    }
+}

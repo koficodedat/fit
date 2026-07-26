@@ -1276,7 +1276,7 @@ describe("enum payload tracking", () => {
     expect(errors.some((e) => e.message.includes("must be consumed") && e.message.includes("Dead"))).toBe(true);
   });
 
-  it("unknown variant in pattern — 'unknown variant' error", () => {
+  it("unknown variant in pattern — 'not declared by enum' error", () => {
     const src = `
       enum Foo { Alpha }
       fn get_foo() -> Foo
@@ -1287,7 +1287,7 @@ describe("enum payload tracking", () => {
       }
     `;
     const errors = check(parse(src, "test.fit"));
-    expect(errors.some((e) => e.message.includes("unknown variant") && e.message.includes("Beta"))).toBe(true);
+    expect(errors.some((e) => e.message.includes("not declared by enum") && e.message.includes("Beta"))).toBe(true);
   });
 
   it("no-payload variant with binds — 'no payload' error", () => {
