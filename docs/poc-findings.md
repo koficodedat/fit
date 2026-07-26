@@ -23,7 +23,7 @@ Three semantic properties are enforced:
 
 ### Semantic rules enforced — the language-independent measure
 
-The checker **enforces 8 semantic rules**. These are countable directly from the implementation and comparable to Austral regardless of implementation language.
+The checker **enforces 9 semantic rules**. These are countable directly from the implementation and are language-independent — they describe what the language guarantees, not how the checker is written.
 
 | # | Rule | Error produced |
 |---|------|----------------|
@@ -35,6 +35,14 @@ The checker **enforces 8 semantic rules**. These are countable directly from the
 | 6 | **Capability-presence-at-call** — every `using Cap` requirement of a callee must be present in the calling scope | `"missing capability 'Cap' required by 'fn'"` |
 | 7 | **Select-source-in-scope** — the source capability of a `select` statement must be in scope; if valid, the projected atom is added to the capability scope | `"capability 'Cap' not in scope for 'select'"` |
 | 8 | **Extern-annotation-required** — an extern with a linear resource parameter and no `move`/`lend` annotation is a compile error | `"extern 'fn' has linear parameter 'X' with no move/lend annotation"` |
+| 9 | **Match-exhaustiveness** — a `match` on a declared enum must cover every variant, either explicitly or via a wildcard | `"match on 'E' is not exhaustive — missing variant(s): X, Y"` |
+
+Two checks added alongside rule 9 are deliberately **not** counted as new rules:
+
+- **Wildcard-covers-linear-payload** (`"wildcard arm covers variant(s) with linear payload: X — destructure explicitly to consume"`) extends rule 1 to a surface that was previously invisible. It enforces the same axiom — a linear value must be consumed exactly once — on linear payloads that a wildcard arm would otherwise silently drop. New surface, not new rule.
+- **Variant-in-scrutinee-enum** (`"variant 'X' is not declared by enum 'E'"`) is name resolution and well-formedness, in the same family as `"undefined variable"`. Nothing substructural about it, so it is excluded from the semantic-rule count.
+
+Counting either as a rule would inflate the primary Q1 measure with checks that are not of a kind with the other nine, which would make the kill criterion less informative rather than more.
 
 Two further properties — move-skips-cleanup and lend-retains-ownership — are **assumed, not statically verified**: the checker tracks ownership (who holds what, when it is moved) but defers cleanup firing to a future runtime. These properties are correctly out of scope for a static checker, but they must not be counted as enforced rules.
 
@@ -54,7 +62,7 @@ The checker runs in distinct phases: type-environment construction (two passes: 
 
 Variant namespacing added principled growth (new grammar construct, resolver, AST extension) — not a kill-criterion signal. The rule count and pass orthogonality remain the primary Q1 measures; the line count is a secondary signal reported as raw trend data.
 
-**Honest status:** the orthogonality result is real and positive. The 8-rule count is the actual Q1 deliverable. Q1 is answered on structure: the checker is small (8 enforced rules, 3 orthogonal properties) and clean (no invented rules, each corresponds to a spec entry). Cleanup firing is not statically verified — that is a runtime/codegen concern, explicitly out of PoC scope.
+**Honest status:** the orthogonality result is real and positive. The rule count is the actual Q1 deliverable. Q1 is answered on structure: the checker is small (9 enforced rules, 3 orthogonal properties) and clean (no invented rules, each corresponds to a spec entry). Cleanup firing is not statically verified — that is a runtime/codegen concern, explicitly out of PoC scope.
 
 ---
 
@@ -133,13 +141,15 @@ The exception is the FFI boundary. Externs (body-less declarations for C/system 
 | **Cleanup firing not statically verified** — the checker tracks ownership and move/lend mode but does not verify that declared cleanup actually fires. `break` and `?` paths are assumed to trigger runtime cleanup; this is not checked. "Automatic cleanup" is one of FIT's three pillars (§1.3) and is not tested by the PoC. | Automatic cleanup is not verified. A program that escapes cleanup (e.g. via an unannotated extern that discards a resource) would not be caught. | Codegen/runtime concern; requires a backend to test. |
 | **Stored-into-aggregate gap** — `pool_add(pool, c)` is not detected as consuming `c` unless `pool_add`'s param is explicitly annotated `move`. Body-scan only detects consumption by direct move-mode call, Ok/Err wrapping, and drop(). *(Closed by composition in v0.1, verified `191f0d7`: fixed-point iteration in pass 2 propagates `move` through any bodied chain ending at a move-annotated extern, and v0.1 has no aggregate-construction syntax — no record literals, no enum-variant payload construction, no field mutation — so there is no expression that stores a resource without an inference-visible call. Reactivates when aggregate-construction syntax is added.)* | Anticipatory: no v0.1 syntactic vector for the gap. Verified by four probe programs (`tests/should_pass/storage_via_move_extern.fit`, `tests/should_pass/storage_lend_chain.fit`, `tests/should_fail/storage_use_after_call.fit`, `tests/should_fail/storage_chain_use_after.fit`). | ~~Require and enforce explicit annotation; emit BuildError if missing.~~ Inert in v0.1; revisit when aggregate-construction syntax lands. |
 | **Forward-reference / mutual-cycle inference gap** — single-pass inference processes functions in source order. When a caller is declared before its consumed callee, the callee's param is still `lend` at scan time; the caller infers `lend` too, producing a false-positive "cannot move borrowed value" error on the move call in the caller's body. Same gap for mutual-recursion cycles where one member has no direct consumption path. *(Fixed in v0.1 recursion-inference round — pass 2 converted to fixed-point iteration; lend→move only, terminates in ≤ N+1 iterations.)* | Before fix: correct programs with forward-declared callees or mutual cycles were falsely rejected. Pure self-recursion (no base-case consumption) stabilizes correctly at `lend` — that remains the correct result. | ~~Fixed-point iteration over the call graph (post-PoC).~~ Done. |
-| **Match variant payload types** — bindings introduced by match patterns receive type `plain/unrestricted`. | Linear values inside enum variants are not tracked. | Resolve enum variant payload types during type environment construction. |
+| ~~**Match variant payload types** — bindings introduced by match patterns receive type `plain/unrestricted`.~~ *(Entry was out of date. Verified working by probe 1 in `e7dfa11`: a variant payload binding resolves to its declared type and its linearity is tracked through the arm. Codegen confirms — `Handle h = _t0.HasOne;` followed by a consuming call. No code change was required.)* | ~~Linear values inside enum variants are not tracked.~~ They are tracked. | ~~Resolve enum variant payload types during type environment construction.~~ Already implemented before this entry was written. |
 | **`Ok(call_expr)` not consumed** — `Ok(make_foo())` does not consume the temporary; only `Ok(named_var)` does. | A linear resource returned from a call and immediately wrapped in Ok is not tracked. | Introduce a temporary-binding pass for call expression results. |
-| **No match exhaustiveness checking** | A `match` missing an enum variant compiles silently. | Add variant coverage check once enum variant types are tracked. |
+| ~~**No match exhaustiveness checking**~~ *(Closed in `731ba2c`: `EnumInfo` carries a per-enum variants list; `case "match"` computes covered vs. declared variants and rejects any uncovered variant when no wildcard is present. Applies to declared enums only — Result and unknown/extern-returned scrutinees retain silent acceptance.)* | ~~A `match` missing an enum variant compiles silently.~~ Now rule 9. | ~~Add variant coverage check once enum variant types are tracked.~~ Done. |
 | **Duplicate declarations silently last-write-win** | No error for `resource Foo { ... }` declared twice. | First-pass duplicate detection in `buildTypeEnv`. *(Fixed in post-ship cleanup round.)* |
-| **Linear value buried inside an unrestricted shell** — a linear value is not directly visible when wrapped in an unrestricted container. Known surfaces: (1) wildcard match arm dropping a linear variant payload (`match e { _ => () }` where the active variant carries a resource); (2) `Result<LinearPayload, E>` returned from a call used as a bare statement — the call-as-statement check is narrow by design and does not recurse into the `Result.ok` slot; (3) any future enum-variant payload pattern that incompletely destructures. | All three surfaces silently leak a linear resource. The call-as-statement check (`checker.ts`) catches the directly-linear case; it does not catch the shell case. | Address together when exhaustiveness infrastructure lands (payload-type tracking through match arms). Until then: avoid `_` arms on linear enums, and bind Result-wrapped linear values via `let` rather than bare-call statements. |
+| **Linear value buried inside an unrestricted shell** — a linear value is not directly visible when wrapped in an unrestricted container. Known surfaces: ~~(1) wildcard match arm dropping a linear variant payload~~ *(closed in `731ba2c` — the strict wildcard rule rejects a wildcard that covers any uncovered variant carrying a linear payload)*; (2) `Result<LinearPayload, E>` returned from a call used as a bare statement — the call-as-statement check is narrow by design and does not recurse into the `Result.ok` slot; (3) any future enum-variant payload pattern that incompletely destructures. | Surfaces (2) and (3) silently leak a linear resource. The call-as-statement check (`checker.ts`) catches the directly-linear case; it does not catch the shell case. Surface (1) is now a compile error. | Surface (1) done. Surfaces (2) and (3) open: bind Result-wrapped linear values via `let` rather than using bare-call statements. Surface (3) is forward-looking — no v0.1 pattern form currently reaches it, since unbound linear payloads are already rejected and multi-bind on a single payload is a compile error. |
 | **Undeclared identifier silent acceptance** — the checker accepts references to undeclared functions and to enum variants when the surrounding type context is unknown. Type information falls back to `?` (for functions) or variant index `0` (for variants), both of which produce invalid C at codegen time. | Programs that type-check successfully can fail to codegen with malformed C output. Surfaces in `smtp.fit` (references `fn next` and the variants `None`/`Some` from an unimplemented list module). | Require all referenced functions and variants to be declared in scope; emit BuildError if missing. Design call: enforce at type-check time, or only at codegen time. |
 | **Type alias raw in C output** — `type X = A \| B` aliases are tracked by the checker but not emitted as typedefs at codegen time; `cTypeName` returns the alias name verbatim, leaving the alias as an undeclared type reference in the generated C. | Programs using error-union aliases (e.g. `type SessionError = SmtpError \| IoError`) in a Result return type produce invalid C. Surfaces in `smtp.fit`. | Codegen-only fix: emit `typedef <tagged-union representation> X;` for each alias — same shape as the enum-payload-variant lowering. |
+| **Result matching produces invalid C** — `match` on a `Result` scrutinee type-checks but generates malformed C. `Ok`/`Err` are not registered in `env.enums`, so `resolveVariant` returns null and the checker's silent-acceptance path takes over; codegen's `variantIndexOf` then falls back to index 0 for both arms, emitting duplicate `case 0:` labels. Payload bindings are not extracted either — `Ok(c)` yields a reference to an undeclared `c`. Verified by probe 2 in `e7dfa11`. | Any program matching on Result rather than propagating with `?` produces C that will not compile. `?` is the intended Result idiom in FIT, so this is an unusual path today — but it is silently accepted rather than rejected, and exhaustiveness does not apply to it. | Requires a design decision first: register `Ok`/`Err` as a builtin enum (uniform — match, exhaustiveness, and codegen all work through the existing path — but injects synthetic entries into the type environment and interacts with the ambiguity machinery), or handle Result as a special form in both checker and codegen (contained, but adds special cases to a checker whose merit is having few). Deferred to its own round. |
+| **Match errors report the `match` line, not the offending arm** — every error emitted from `case "match"` uses `stmt.pos`, the position of the `match` keyword. Arm-specific errors (wrong-enum variant, undeclared variant, unbound linear payload, multi-bind on a single payload, unconsumed arm binding) therefore all point at the same line regardless of which arm produced them. | On a match with many arms the error gives no indication which arm to fix, and two errors from different arms are indistinguishable by position. `match_variant_wrong_enum.fit` reports both its errors at `5:5` while the offending arms are on lines 7 and 8. | Add a `pos` field to `Pattern` or `MatchArm` in `ast.ts`, populate it in `parsePattern` / `parseMatchStmt`, and use it in place of `stmt.pos` for arm-specific errors in the arm loop. Exhaustiveness and wildcard-covers-linear errors correctly stay at `stmt.pos` — they are properties of the whole match, not of any one arm. |
 
 None of these limitations caused a false negative or false positive on the canonical programs or the test suite, *provided* extern resource params carry explicit `move`/`lend` annotations.
 
@@ -297,11 +307,88 @@ Per `FIT-v0.1-codegen-scoping.md`:
 
 ---
 
+## v0.1 Phase — Match exhaustiveness (2026-06-08)
+
+### What landed
+
+Exhaustiveness checking for matches on declared enums, a strict wildcard rule for
+linear payloads, and two rounds of resolution-check hardening.
+
+**Probe round** (`e7dfa11`) — four programs establishing actual current behavior
+before any implementation:
+
+| Probe | Finding |
+|---|---|
+| Payload-type tracking | Already working — the limitation entry was out of date |
+| Matching on Result | Type-checks, but generates invalid C (see Known Limitations) |
+| Wildcard dropping a linear payload | Leak surface confirmed |
+| Non-exhaustive match | Silent acceptance confirmed |
+
+**Implementation** (`731ba2c`):
+- `EnumInfo` extended with a per-enum variants list (name + resolved payload)
+- Coverage check in `case "match"`: missing-variant error when no wildcard is
+  present; wildcard-covers-linear-payload error under the strict rule
+- Probes 3 and 4 moved to `should_fail/` with descriptive names
+- Three new `should_pass` programs, including a destructured-then-wildcard case
+  confirming that the strict rule tests *uncovered* variants rather than all
+  variants — a linear-payload variant that is explicitly destructured does not
+  trigger the rule
+
+**Resolution hardening** (`6b2c1a3`, `7e0b524`, `f533b5b`):
+- Unified the "variant not in scrutinee's enum" error. Previously a variant name
+  that existed in a *different* enum was silently accepted, while a variant that
+  existed nowhere produced an error — inconsistent treatment of what is, from the
+  user's side, one fact. Both now emit `variant 'X' is not declared by enum 'E'`.
+- The ambiguous-variant case retains its own distinct message, which carries
+  disambiguation hints (`use 'A.X' or 'B.X'`) that the unified message would lose.
+- `covered.add` gated on resolution (`variantInfo !== null`) rather than on the
+  reporting flag. All three unresolved paths — wrong-enum, undeclared, ambiguous —
+  now leave the variant uncovered, so the exhaustiveness error still fires
+  alongside the resolution error.
+
+### Rule count: 8 → 9
+
+Match-exhaustiveness is a new enforced rule. Two other checks added in this phase
+are not counted: wildcard-covers-linear-payload extends rule 1 to a new surface,
+and variant-in-scrutinee-enum is name resolution rather than a substructural rule.
+See the Q1 accounting note above.
+
+### Severity characterization — recorded deliberately
+
+The `covered.add` bug fixed across `7e0b524` and `f533b5b` was initially
+characterized internally as a critical soundness issue ("an invisible
+exhaustiveness gap is a linearity hole"). The traces do not support that. In every
+affected case an error already fired for the same arm — wrong-enum, undeclared, or
+ambiguous — so the program was rejected regardless; the bug suppressed a *second*,
+additional error. That is **diagnostics completeness, not soundness**, the same
+class as the recursion-inference round.
+
+Recorded because mislabelling completeness as soundness is what justified bundling
+the fix rather than stopping to report, and because this project has already lost
+time to an unverified claim propagating across rounds (the Austral line-count
+reference).
+
+### Out of scope, carried forward
+
+- **Result matching** — its own round, gated on a design decision (builtin enum
+  vs. special form). See Known Limitations.
+- **Pattern-level source positions** — arm-specific errors report the `match`
+  line rather than the offending arm. Now tracked as a Known Limitation above.
+- **Unreachable-pattern detection** (e.g. a wildcard preceding specific variants).
+- **Exhaustiveness for unknown / extern-returned scrutinees** — preserves existing
+  silent acceptance; entangled with the undeclared-identifier design call.
+
+### Test count
+
+354 tests.
+
+---
+
 ## Natural next steps (post-PoC, in priority order)
 
 1. ~~**Run the reader study** — find non-programmer subjects, administer `docs/reader-study.md`, record comprehension scores against FIT-SPEC-v2.md §10 success criterion.~~ *Done — Q2 closed positively; see PoC question 2 above.*
 2. ~~**Fix self-recursive inference** — fixed-point iteration over the call graph so self-recursive and mutually-recursive functions are inferred correctly without requiring explicit annotation.~~ *Done in `f044e88` (v0.1 recursion-inference round); see Known Limitations table.*
-3. **Match exhaustiveness and payload types** — requires resolving enum variant payload types first.
+3. ~~**Match exhaustiveness and payload types** — requires resolving enum variant payload types first.~~ *Done — exhaustiveness in `731ba2c`; payload types were already working (verified `e7dfa11`). See v0.1 Phase — Match exhaustiveness below.*
 4. ~~**Codegen target** — choose a compilation target (C, LLVM IR, WASM) and implement a minimal backend for one of the canonical programs to verify the model translates.~~ *Done in v0.1 codegen Rounds A+B (`62a0e08`, `5f57ea9`); see v0.1 Phase — Codegen completion below.*
 5. **Standard library sketch** — define the FIT equivalents of `File`, `TcpSocket`, `HttpConn` to validate that real-world resource types fit the resource + typestate model.
 
