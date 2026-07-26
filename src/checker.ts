@@ -168,16 +168,13 @@ function checkStmt(
         const armLinearBinds: string[] = [];
         if (arm.pattern.kind === "wildcard") {
           hasWildcard = true;
-        } else if (arm.pattern.kind === "variant") {
-          covered.add(arm.pattern.name);
         }
         if (arm.pattern.kind === "variant") {
           const resolved = resolveVariant(arm.pattern.name, arm.pattern.qualifier, env);
           let variantInfo = resolved.result;
-          const resolvedError = resolved.error ?? "";
           let unifiedEmitted = false;
 
-          if (subjectIsKnownEnum && (subjectType.kind === "plain" || subjectType.kind === "enum")) {
+          if (subjectIsKnownEnum) {
             const enumName = subjectType.name;
             if (variantInfo !== null && variantInfo.enumName !== enumName) {
               errors.push({
@@ -199,10 +196,13 @@ function checkStmt(
             }
           }
 
+          // Only mark as covered when the arm resolved to the correct enum.
+          if (!unifiedEmitted) covered.add(arm.pattern.name);
+
           if (variantInfo === null) {
             // Emit error if: subject is a known enum (existing gate) OR a qualifier was given (always check explicit refs)
             if (!unifiedEmitted && (subjectIsKnownEnum || arm.pattern.qualifier !== null)) {
-              errors.push({ message: resolvedError, pos: stmt.pos });
+              errors.push({ message: resolved.error!, pos: stmt.pos });
             }
             for (const bind of arm.pattern.binds) {
               armScope.set(bind, {
