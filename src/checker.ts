@@ -196,12 +196,19 @@ function checkStmt(
             }
           }
 
-          // Only mark as covered when the arm resolved to the correct enum.
-          if (!unifiedEmitted) covered.add(arm.pattern.name);
+          // Only mark as covered when the arm resolved to a variant of the
+          // scrutinee's enum. Gate on the resolution (variantInfo), not on the
+          // reporting flag (unifiedEmitted): unresolved arms — wrong-enum,
+          // undeclared, and ambiguous — must all leave the variant uncovered so
+          // the exhaustiveness check still reports it as missing.
+          if (variantInfo !== null) covered.add(arm.pattern.name);
 
           if (variantInfo === null) {
             // Emit error if: subject is a known enum (existing gate) OR a qualifier was given (always check explicit refs)
             if (!unifiedEmitted && (subjectIsKnownEnum || arm.pattern.qualifier !== null)) {
+              // Non-null assertion is sound only under !unifiedEmitted: when the
+              // unified check nulls variantInfo, resolved.error is null. Do not
+              // remove the guard above without revisiting this.
               errors.push({ message: resolved.error!, pos: stmt.pos });
             }
             for (const bind of arm.pattern.binds) {
