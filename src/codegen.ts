@@ -294,12 +294,20 @@ function emitExternDecl(
 // A live (still-owned) linear resource in the current scope.
 type LiveVar = { name: string; cleanupFn: string };
 
+// A pending goto target for the loop it was pushed by. `used` is set by a
+// "break" anywhere within the loop's body (including inside cloned branch
+// states) and read back by the "loop" case after emitting the body — the
+// array spread on clone copies the stack, not the LoopLabel objects, so the
+// flag is shared by reference across branches. See codegen-break-lowering brief §1.1.
+type LoopLabel = { name: string; used: boolean };
+
 // Mutable state threaded through body emission.
 type EmitState = {
   live: LiveVar[];                  // owned resources in declaration order
   varTypes: Map<string, FitType>;  // all declared locals (for type lookup)
   tmp: { n: number };               // fresh temp-variable counter (shared across branches)
   returned: boolean;                // true once a return has been emitted
+  loopLabels: LoopLabel[];          // enclosing-loop goto targets, innermost last
 };
 
 function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, ctx: CodegenCtx): string {
@@ -322,7 +330,7 @@ function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, ctx: CodegenCtx):
     }
   }
 
-  const state: EmitState = { live, varTypes, tmp: { n: 0 }, returned: false };
+  const state: EmitState = { live, varTypes, tmp: { n: 0 }, returned: false, loopLabels: [] };
   emitStmts(decl.body, 1, ctx, sig.returnType, state, true, out);
 
   if (!state.returned) {
@@ -455,6 +463,7 @@ function emitStmt(
         varTypes: state.varTypes,
         tmp: state.tmp,
         returned: false,
+        loopLabels: [...state.loopLabels],
       };
       out.push(`${ind(depth)}if (${condExpr}) {`);
       emitStmts(stmt.then, depth + 1, ctx, retType, thenState, false, out);
@@ -464,6 +473,7 @@ function emitStmt(
         varTypes: state.varTypes,
         tmp: state.tmp,
         returned: false,
+        loopLabels: [...state.loopLabels],
       };
       out.push(`${ind(depth)}} else {`);
       emitStmts(stmt.else_, depth + 1, ctx, retType, elseState, false, out);
@@ -482,20 +492,30 @@ function emitStmt(
     }
 
     case "loop": {
+      const label: LoopLabel = { name: `_loop_end_${state.tmp.n++}`, used: false };
       out.push(`${ind(depth)}while (1) {`);
       const bodyState: EmitState = {
         live: [...state.live],
         varTypes: state.varTypes,
         tmp: state.tmp,
         returned: false,
+        loopLabels: [...state.loopLabels, label],
       };
       emitStmts(stmt.body, depth + 1, ctx, retType, bodyState, false, out);
       out.push(`${ind(depth)}}`);
+      if (label.used) {
+        out.push(`${ind(depth)}${label.name}:;`);
+      }
       break;
     }
 
     case "break": {
-      out.push(`${ind(depth)}break;`);
+      const label = state.loopLabels[state.loopLabels.length - 1];
+      if (label === undefined) {
+        throw new Error("codegen: 'break' outside any loop");
+      }
+      label.used = true;
+      out.push(`${ind(depth)}goto ${label.name};`);
       break;
     }
 
@@ -557,6 +577,7 @@ function emitStmt(
             varTypes: state.varTypes,
             tmp: state.tmp,
             returned: false,
+            loopLabels: [...state.loopLabels],
           };
           armStates.push(armState);
           emitStmts(arm.body, depth + 2, ctx, retType, armState, false, out);
@@ -576,6 +597,7 @@ function emitStmt(
             varTypes: state.varTypes,
             tmp: state.tmp,
             returned: false,
+            loopLabels: [...state.loopLabels],
           };
           armStates.push(armState);
 

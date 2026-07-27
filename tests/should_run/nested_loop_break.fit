@@ -1,0 +1,26 @@
+// Execution test for the label stack in break lowering. The inner break must
+// exit only the inner loop, leaving the outer loop to continue.
+
+enum Sig { Again, Stop }
+
+fn inner_sig() -> Sig
+fn outer_sig() -> Sig
+fn note_inner_done() -> ()
+fn note_outer_done() -> ()
+
+fn nested_loops() -> () {
+    loop {
+        loop {
+            match inner_sig() {
+                Again => { },
+                Stop  => break,
+            }
+        }
+        note_inner_done()
+        match outer_sig() {
+            Again => { },
+            Stop  => break,
+        }
+    }
+    note_outer_done()
+}

@@ -1,0 +1,25 @@
+// REGRESSION TEST for a silent miscompilation: `break` inside a match arm used
+// to lower to `break` inside a C switch, which exits the switch rather than
+// the enclosing while(1). The loop-exit path the FIT source specifies
+// (Done => break) was unreachable at runtime, and everything after the loop
+// was dead — type-checked, compiled clean under -Werror, and ran wrong.
+//
+// Fixed by lowering `break` to `goto` a label placed after the loop, which
+// jumps past the switch regardless of how `match` is represented.
+//
+// See harness.c alongside this file for the runtime demonstration.
+
+enum Event { More, Done }
+
+fn next_event() -> Event
+fn finish() -> ()
+
+fn drain_events() -> () {
+    loop {
+        match next_event() {
+            More => { },
+            Done => break,
+        }
+    }
+    finish()
+}

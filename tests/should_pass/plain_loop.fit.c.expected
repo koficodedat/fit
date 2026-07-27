@@ -23,11 +23,12 @@ void send_loop(Conn c) {
       String msg = get_msg();
       send_msg(c, msg);
       if (should_stop()) {
-        break;
+        goto _loop_end_0;
       } else {
       }
     }
   }
+  _loop_end_0:;
   return;
 }
 
