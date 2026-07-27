@@ -323,7 +323,7 @@ function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, ctx: CodegenCtx):
   }
 
   const state: EmitState = { live, varTypes, tmp: { n: 0 }, returned: false };
-  emitStmts(decl.body, 1, ctx, sig.returnType, state, out);
+  emitStmts(decl.body, 1, ctx, sig.returnType, state, true, out);
 
   if (!state.returned) {
     // Scope exit: clean up any still-owned move-mode resources in reverse order.
@@ -343,17 +343,26 @@ function emitFnImpl(decl: Decl & { kind: "fn"; body: Stmt[] }, ctx: CodegenCtx):
 // Block-scoping rule: each `let` wraps itself and all subsequent siblings in a new
 // C block (`{...}`). The binding is emitted INSIDE the block (at depth+1), safely
 // nested below any parameter or prior let at the current depth.
+//
+// isTail marks that the LAST statement of this list is in tail position of the
+// enclosing function body (only emitFnImpl's top-level call passes true; if/loop/
+// match bodies are out of scope for tail-expression return and always pass false).
+// Only the final statement inherits it; earlier statements get false. The `let`
+// case recurses on the remainder with the same incoming flag — the remainder's
+// tail is still the enclosing body's tail.
 function emitStmts(
   stmts: Stmt[],
   depth: number,
   ctx: CodegenCtx,
   retType: FitType,
   state: EmitState,
+  isTail: boolean,
   out: string[]
 ): void {
   for (let i = 0; i < stmts.length; i++) {
     if (state.returned) break;
     const stmt = stmts[i];
+    const stmtIsTail = isTail && i === stmts.length - 1;
 
     if (stmt.kind === "let") {
       out.push(`${ind(depth)}{`);
@@ -365,12 +374,12 @@ function emitStmts(
         if (existingIdx >= 0) state.live.splice(existingIdx, 1);
         state.live.push({ name: stmt.name, cleanupFn: fitType.cleanup });
       }
-      emitStmts(stmts.slice(i + 1), depth + 1, ctx, retType, state, out);
+      emitStmts(stmts.slice(i + 1), depth + 1, ctx, retType, state, isTail, out);
       out.push(`${ind(depth)}}`);
       return;
     }
 
-    emitStmt(stmt, depth, ctx, retType, state, out);
+    emitStmt(stmt, depth, ctx, retType, state, stmtIsTail, out);
   }
 }
 
@@ -380,6 +389,7 @@ function emitStmt(
   ctx: CodegenCtx,
   retType: FitType,
   state: EmitState,
+  isTail: boolean,
   out: string[]
 ): void {
   switch (stmt.kind) {
@@ -400,8 +410,12 @@ function emitStmt(
 
     case "expr": {
       const expr = stmt.expr;
+
       if (expr.kind === "ok" || expr.kind === "err") {
-        // Return expression: clean up live vars first, then return.
+        // Ok(...)/Err(...) is FIT's explicit return construct — the checker allows
+        // it at any statement position (early return from inside if/match arms),
+        // not just tail. Unconditional on isTail; ordering (cleanup before
+        // evaluating the value) preserved exactly.
         for (const v of [...state.live].reverse()) {
           out.push(`${ind(depth)}${v.cleanupFn}(${v.name});`);
         }
@@ -409,6 +423,20 @@ function emitStmt(
         const { cExpr } = emitExpr(expr, depth, ctx, retType, state, out);
         out.push(`${ind(depth)}return ${cExpr};`);
         state.returned = true;
+      } else if (isTail && retType.kind !== "unit") {
+        // General tail expression (call, var, qualified_var, try, ...): evaluate
+        // first — a `try` must emit its own statements (including its own
+        // error-path cleanup) before we return — then clean up remaining live
+        // vars, then return the value.
+        const { cExpr } = emitExpr(expr, depth, ctx, retType, state, out);
+        if (cExpr !== "(void)0") {
+          for (const v of [...state.live].reverse()) {
+            out.push(`${ind(depth)}${v.cleanupFn}(${v.name});`);
+          }
+          state.live.length = 0;
+          out.push(`${ind(depth)}return ${cExpr};`);
+          state.returned = true;
+        }
       } else {
         const { cExpr } = emitExpr(stmt.expr, depth, ctx, retType, state, out);
         if (stmt.expr.kind !== "try" && cExpr !== "(void)0") {
@@ -429,7 +457,7 @@ function emitStmt(
         returned: false,
       };
       out.push(`${ind(depth)}if (${condExpr}) {`);
-      emitStmts(stmt.then, depth + 1, ctx, retType, thenState, out);
+      emitStmts(stmt.then, depth + 1, ctx, retType, thenState, false, out);
 
       const elseState: EmitState = {
         live: [...preLive],
@@ -438,7 +466,7 @@ function emitStmt(
         returned: false,
       };
       out.push(`${ind(depth)}} else {`);
-      emitStmts(stmt.else_, depth + 1, ctx, retType, elseState, out);
+      emitStmts(stmt.else_, depth + 1, ctx, retType, elseState, false, out);
       out.push(`${ind(depth)}}`);
 
       if (!thenState.returned && !elseState.returned) {
@@ -461,7 +489,7 @@ function emitStmt(
         tmp: state.tmp,
         returned: false,
       };
-      emitStmts(stmt.body, depth + 1, ctx, retType, bodyState, out);
+      emitStmts(stmt.body, depth + 1, ctx, retType, bodyState, false, out);
       out.push(`${ind(depth)}}`);
       break;
     }
@@ -531,7 +559,7 @@ function emitStmt(
             returned: false,
           };
           armStates.push(armState);
-          emitStmts(arm.body, depth + 2, ctx, retType, armState, out);
+          emitStmts(arm.body, depth + 2, ctx, retType, armState, false, out);
           if (!armState.returned) out.push(`${ind(depth + 2)}break;`);
           out.push(`${ind(depth + 1)}}`);
         } else {
@@ -568,7 +596,7 @@ function emitStmt(
             }
           }
 
-          emitStmts(arm.body, depth + 2, ctx, retType, armState, out);
+          emitStmts(arm.body, depth + 2, ctx, retType, armState, false, out);
           if (!armState.returned) out.push(`${ind(depth + 2)}break;`);
           out.push(`${ind(depth + 1)}}`);
         }

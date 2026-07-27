@@ -1,0 +1,25 @@
+// FIT has no `return` keyword — a tail expression IS the return value, and it is
+// the only mechanism the language has. Codegen must honour that for any
+// expression kind ending a function body, not just Ok(...)/Err(...).
+//
+// tail_call_value covers the general case: a bare call in tail position of a
+// non-unit-returning function. tail_call_unit and tail_ok cover the two shapes
+// that already worked before the general mechanism existed — a unit-returning
+// tail call, and an explicit Ok(...) — kept here as regression coverage.
+
+enum Status { Ready, Failed }
+
+fn compute() -> Status
+fn side_effect() -> ()
+
+fn tail_call_value() -> Status {
+    compute()
+}
+
+fn tail_call_unit() -> () {
+    side_effect()
+}
+
+fn tail_ok() -> Result<Status, ()> {
+    Ok(compute())
+}

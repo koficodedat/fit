@@ -1,0 +1,30 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef enum {
+  Status_Ready = 0,
+  Status_Failed = 1
+} Status;
+
+typedef struct {
+  int tag;
+  union { Status ok; int err; };
+} R_Status_int;
+
+extern Status compute(void);
+extern void side_effect(void);
+
+Status tail_call_value(void) {
+  return compute();
+}
+
+void tail_call_unit(void) {
+  side_effect();
+  return;
+}
+
+R_Status_int tail_ok(void) {
+  return (R_Status_int){0, {.ok = compute()}};
+}
+

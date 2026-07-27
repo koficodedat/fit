@@ -1,0 +1,17 @@
+enum Status { Ready, Failed }
+
+fn compute() -> Status
+fn fallible() -> Result<Status, ()>
+
+fn tail_var(s: Status) -> Status {
+    s
+}
+
+fn tail_try() -> Result<Status, ()> {
+    let s = fallible()?
+    Ok(s)
+}
+
+fn tail_qualified() -> Status {
+    Status.Ready
+}

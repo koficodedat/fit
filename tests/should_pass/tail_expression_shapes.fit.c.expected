@@ -1,0 +1,37 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef enum {
+  Status_Ready = 0,
+  Status_Failed = 1
+} Status;
+
+typedef struct {
+  int tag;
+  union { Status ok; int err; };
+} R_Status_int;
+
+extern Status compute(void);
+extern R_Status_int fallible(void);
+
+Status tail_var(Status s) {
+  return s;
+}
+
+R_Status_int tail_try(void) {
+  {
+    R_Status_int _t0 = fallible();
+    if (_t0.tag != 0) {
+      R_Status_int _err = {1, {.err = _t0.err}};
+      return _err;
+    }
+    Status s = _t0.ok;
+    return (R_Status_int){0, {.ok = s}};
+  }
+}
+
+Status tail_qualified(void) {
+  return Status_Ready;
+}
+
