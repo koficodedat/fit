@@ -1,0 +1,22 @@
+// PROBE — DOCUMENTS A KNOWN UNSOUNDNESS. Currently accepted; should be rejected.
+// A linear resource passed into a record is untracked from that point on.
+// Records resolve to plain/unrestricted, so `h` needs no consumption and the
+// Conn inside it is never cleaned up. See FIT-v0.1-investigation-records.md.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+record Holder {
+    c: Conn,
+}
+
+fn open() -> Conn
+fn close(c: move Conn) -> ()
+fn make_holder(c: move Conn) -> Holder
+
+fn leak() -> () {
+    let c = open()
+    let h = make_holder(c)
+}

@@ -1,0 +1,22 @@
+// CONTRAST PROBE — the same shape as record_leaks_linear.fit, using an enum.
+// Enums propagate linearity (EnumInfo.isLinear is computed from payload modes);
+// records do not. This file is expected to be REJECTED, and the asymmetry
+// between it and record_leaks_linear.fit is the finding.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+enum Held {
+    Holding(Conn),
+}
+
+fn open() -> Conn
+fn close(c: move Conn) -> ()
+fn make_held(c: move Conn) -> Held
+
+fn leak_enum() -> () {
+    let c = open()
+    let h = make_held(c)
+}
