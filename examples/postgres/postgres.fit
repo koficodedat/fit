@@ -1,0 +1,175 @@
+// postgres.fit — PostgreSQL frontend/backend protocol v3.0, simple query flow.
+//
+// Round-1 blind-write example program (FIT v0.1 example-protocol round).
+// Covers: startup, cleartext/MD5 auth (SASL modelled as a rejected branch,
+// not implemented), the post-auth parameter/keydata drain, one simple query,
+// and a clean disconnect. Byte-level encoding/decoding lives behind externs;
+// this file is orchestration only.
+
+import pg_std
+
+enum PgConnState { Fresh, Started, Authenticated, Ready, Querying }
+
+resource PgConn<S> {
+    sock:    Socket<Connected>,
+    cleanup: pgconn_force_close,
+}
+
+enum PgError {
+    ServerError(String),   // backend sent ErrorResponse; String is the formatted message
+    ProtocolViolation,     // a message arrived out of the expected sequence
+    AuthUnsupported,       // backend requested an auth method this client can't do (SASL)
+}
+
+type SessionError = NetError | PgError
+
+// ── Startup ──────────────────────────────────────────────────────────────────
+
+fn pg_connect(host: String, port: Int) using Net
+    -> Result<PgConn<Fresh>, NetError>
+
+fn send_startup(c: move PgConn<Fresh>, user: String, database: String) using Net
+    -> Result<PgConn<Started>, SessionError>
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+enum AuthRequest {
+    NoneRequired,
+    Cleartext,
+    Md5(Bytes),         // salt
+    Unsupported,        // SASL / anything else v0.1 doesn't implement
+}
+
+fn read_auth_request(c: lend PgConn<Started>) using Net
+    -> Result<AuthRequest, SessionError>
+
+fn send_password(c: lend PgConn<Started>, password: String) using Net
+    -> Result<(), SessionError>
+
+fn send_md5_password(c: lend PgConn<Started>, user: String, password: String, salt: Bytes) using Net
+    -> Result<(), SessionError>
+
+fn await_auth_ok(c: move PgConn<Started>) using Net
+    -> Result<PgConn<Authenticated>, SessionError>
+
+fn err_auth_unsupported() -> PgError
+
+// Dispatches on the auth method the backend actually requested. The match is
+// written exhaustively over all four cases the protocol defines, even though
+// v0.1 only implements two of them — SASL returns a real error instead of
+// being silently dropped, so the auth match stays exhaustive without
+// implementing SCRAM.
+fn authenticate(c: PgConn<Started>, user: String, password: String) using Net
+    -> Result<PgConn<Authenticated>, SessionError> {
+
+    match read_auth_request(c)? {
+        AuthRequest.NoneRequired => {},
+        AuthRequest.Cleartext    => { send_password(c, password)? },
+        AuthRequest.Md5(salt)    => { send_md5_password(c, user, password, salt)? },
+        AuthRequest.Unsupported  => { Err(err_auth_unsupported())? },
+    }
+    await_auth_ok(c)
+}
+
+// ── Ready: ParameterStatus* + BackendKeyData + ReadyForQuery ────────────────
+
+record Param {
+    name:  String,
+    value: String,
+}
+
+enum StartupEvent {
+    Parameter(Param),
+    KeyData,
+    Ready,
+}
+
+fn read_startup_event(c: lend PgConn<Authenticated>) using Net
+    -> Result<StartupEvent, SessionError>
+
+fn enter_ready(c: move PgConn<Authenticated>)
+    -> Result<PgConn<Ready>, SessionError>
+
+// The server sends an unbounded number of ParameterStatus messages and one
+// BackendKeyData before ReadyForQuery. PgConn's typestate does not change
+// while draining them — only enter_ready, called once after the loop, marks
+// the transition. A loop that changed c's typestate on every iteration would
+// need recursion instead (see run_query below for the same shape applied to
+// row reading).
+fn await_ready(c: PgConn<Authenticated>) using Net
+    -> Result<PgConn<Ready>, SessionError> {
+
+    loop {
+        match read_startup_event(c)? {
+            StartupEvent.Parameter(p) => {},
+            StartupEvent.KeyData      => {},
+            StartupEvent.Ready        => break,
+        }
+    }
+    enter_ready(c)
+}
+
+// ── Query ────────────────────────────────────────────────────────────────────
+
+record RowDescription {
+    columns: List<String>,
+}
+
+record Row {
+    values: List<String>,
+}
+
+enum QueryEvent {
+    Description(RowDescription),
+    Row(Row),
+    Complete,
+}
+
+fn send_query(c: move PgConn<Ready>, sql: String) using Net
+    -> Result<PgConn<Querying>, SessionError>
+
+fn read_query_event(c: lend PgConn<Querying>) using Net
+    -> Result<QueryEvent, SessionError>
+
+fn finish_query(c: move PgConn<Querying>) using Net
+    -> Result<PgConn<Ready>, SessionError>
+
+fn empty_rows()                          -> List<Row>
+fn push_row(rows: List<Row>, r: Row)     -> List<Row>
+
+// ── Close ────────────────────────────────────────────────────────────────────
+
+fn terminate(c: move PgConn<Ready>) using Net
+    -> Result<(), SessionError>
+
+fn pgconn_force_close(c: move PgConn) -> ()
+
+// ── End-to-end program ────────────────────────────────────────────────────────
+
+// Connect, authenticate, run one query, collect its rows, disconnect.
+// Same loop-then-transition shape as await_ready: the row-reading loop keeps
+// c at PgConn<Querying> throughout every DataRow, and finish_query does the
+// one transition back to Ready once Complete is seen.
+fn run_query(host: String, port: Int, user: String, password: String,
+             database: String, sql: String) using Net
+    -> Result<List<Row>, SessionError> {
+
+    let c = pg_connect(host, port)?
+    let c = send_startup(c, user, database)?
+    let c = authenticate(c, user, password)?
+    let c = await_ready(c)?
+    let c = send_query(c, sql)?
+
+    let mut rows = empty_rows()
+    loop {
+        match read_query_event(c)? {
+            QueryEvent.Description(d) => {},
+            QueryEvent.Row(r)         => { rows = push_row(rows, r) },
+            QueryEvent.Complete       => break,
+        }
+    }
+
+    let c = finish_query(c)?
+    terminate(c)?
+    Ok(rows)
+}

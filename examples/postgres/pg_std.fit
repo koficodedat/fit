@@ -1,0 +1,24 @@
+// pg_std.fit — transport-layer stdlib sketch for the PostgreSQL example.
+//
+// Deliberately generic: a socket resource with a Fresh -> Connected -> Closed
+// lifecycle and nothing PostgreSQL-specific. postgres.fit builds the wire
+// protocol on top by wrapping a connected socket in its own PgConn<S>
+// resource. The point of this file is to establish whether a real I/O
+// resource type fits the resource + typestate model — it is a sketch, not a
+// usable library.
+
+enum SockState { Fresh, Connected, Closed }
+
+resource Socket<S> {
+    fd:      SocketFd,
+    cleanup: sock_force_close,
+}
+
+enum NetError { Refused, Timeout, Reset, BrokenPipe }
+
+fn sock_open()                                                       -> Result<Socket<Fresh>, NetError>
+fn sock_connect(s: move Socket<Fresh>, host: String, port: Int) using Net -> Result<Socket<Connected>, NetError>
+fn sock_send   (s: lend Socket<Connected>, data: Bytes)          using Net -> Result<Int, NetError>
+fn sock_recv   (s: lend Socket<Connected>, buf: lend Bytes)      using Net -> Result<Int, NetError>
+fn sock_close  (s: move Socket<Connected>)                       using Net -> Result<Socket<Closed>, NetError>
+fn sock_force_close(s: move Socket)                                  -> ()
