@@ -1,0 +1,63 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef struct {
+  int fd;
+} File;
+
+typedef enum {
+  IoError_NotFound = 0,
+  IoError_Denied = 1
+} IoError;
+
+typedef enum {
+  ParseError_Malformed = 0
+} ParseError;
+
+/* error union ConfigError = IoError | ParseError */
+typedef int ConfigError;
+
+typedef int Int;
+
+typedef struct {
+  int tag;
+  union { File ok; IoError err; };
+} R_File_IoError;
+
+typedef struct {
+  int tag;
+  union { Int ok; ParseError err; };
+} R_Int_ParseError;
+
+typedef struct {
+  int tag;
+  union { Int ok; ConfigError err; };
+} R_Int_ConfigError;
+
+extern void close_file(File f);
+extern R_File_IoError open_file(void);
+extern R_Int_ParseError parse_file(File f);
+
+R_Int_ConfigError load(void) {
+  {
+    R_File_IoError _t0 = open_file();
+    if (_t0.tag != 0) {
+      R_Int_ConfigError _err = {1, {.err = _t0.err}};
+      return _err;
+    }
+    File f = _t0.ok;
+    {
+      R_Int_ParseError _t1 = parse_file(f);
+      if (_t1.tag != 0) {
+        close_file(f);
+        R_Int_ConfigError _err = {1, {.err = _t1.err}};
+        return _err;
+      }
+      Int n = _t1.ok;
+      close_file(f);
+      return (R_Int_ConfigError){0, {.ok = n}};
+    }
+  }
+}
+

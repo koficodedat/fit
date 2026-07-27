@@ -1,0 +1,20 @@
+enum IoError { NotFound, Denied }
+enum ParseError { Malformed }
+
+type ConfigError = IoError | ParseError
+
+resource File {
+    fd:      Int,
+    cleanup: close_file,
+}
+
+fn close_file(f: move File) -> ()
+fn open_file() -> Result<File, IoError>
+fn parse_file(f: lend File) -> Result<Int, ParseError>
+
+fn load() -> Result<Int, ConfigError> {
+    let f = open_file()?
+    let n = parse_file(f)?
+    close_file(f)
+    Ok(n)
+}
