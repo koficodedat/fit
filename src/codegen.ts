@@ -119,6 +119,22 @@ function collectPlainTypeNames(env: TypeEnv, program: Program): string[] {
   return names;
 }
 
+// If the declared error slot is a union alias and the value is one of its members,
+// wrap it in the alias's tagged-union representation. Pass through otherwise —
+// when the value already IS the alias, or the slot is a plain error type.
+function wrapErrMember(
+  cExpr: string,
+  valueType: FitType,
+  errSlot: FitType | null
+): string {
+  if (errSlot === null || errSlot.kind !== "alias") return cExpr;
+  const name = "name" in valueType ? valueType.name : null;
+  if (name === null || name === errSlot.name) return cExpr;
+  const idx = errSlot.members.indexOf(name);
+  if (idx < 0) return cExpr;
+  return `(${errSlot.name}){${idx}, {.${name} = ${cExpr}}}`;
+}
+
 // Entry point: compile a parsed FIT program to a C source string.
 export function codegen(program: Program): string {
   if (program.decls.some(d => d.kind === "import")) {
@@ -156,18 +172,6 @@ export function codegen(program: Program): string {
     out.push(`typedef int ${name};`);
   }
   if (plainNames.length > 0) {
-    out.push("");
-  }
-
-  // Type alias typedefs. Erased to int — nothing in v0.1 discriminates an error
-  // union; ? propagates the whole value and no syntax destructures an alias.
-  for (const decl of program.decls) {
-    if (decl.kind === "type_alias") {
-      out.push(`/* error union ${decl.name} = ${decl.members.join(" | ")} */`);
-      out.push(`typedef int ${decl.name};`);
-    }
-  }
-  if (program.decls.some(d => d.kind === "type_alias")) {
     out.push("");
   }
 
@@ -221,6 +225,25 @@ export function codegen(program: Program): string {
           .join(",\n");
         out.push(`typedef enum {\n${variants}\n} ${decl.name};`);
       }
+      out.push("");
+    }
+  }
+
+  // Type alias typedefs: tagged union over the alias's member types. A member
+  // carrying a payload lowers to a struct, and struct-into-int is not a legal C
+  // conversion — so the alias itself must be tagged, not erased to int.
+  for (const decl of program.decls) {
+    if (decl.kind === "type_alias") {
+      out.push(`/* error union ${decl.name} = ${decl.members.join(" | ")} */`);
+      out.push("typedef struct {");
+      out.push("  int tag;");
+      out.push("  union {");
+      for (const m of decl.members) {
+        const memberType = resolveType({ kind: "named", name: m, typeArg: null }, env);
+        out.push(`    ${cTypeName(memberType)} ${m};`);
+      }
+      out.push("  };");
+      out.push(`} ${decl.name};`);
       out.push("");
     }
   }
@@ -607,7 +630,9 @@ function emitExpr(
     case "err": {
       const inner = emitExpr(expr.expr, depth, ctx, retType, state, out);
       const cName = cTypeName(retType);
-      return { cExpr: `(${cName}){1, {.err = ${inner.cExpr}}}`, fitType: retType };
+      const errSlot = retType.kind === "result" ? retType.err : null;
+      const wrapped = wrapErrMember(inner.cExpr, inner.fitType, errSlot);
+      return { cExpr: `(${cName}){1, {.err = ${wrapped}}}`, fitType: retType };
     }
 
     case "call": {
@@ -662,7 +687,12 @@ function emitExpr(
         out.push(`${ind(depth + 1)}${v.cleanupFn}(${v.name});`);
       }
       const retCType = cTypeName(retType);
-      out.push(`${ind(depth + 1)}${retCType} _err = {1, {.err = ${tmpName}.err}};`);
+      const innerErrType = inner.fitType.kind === "result" ? inner.fitType.err : null;
+      const errSlot = retType.kind === "result" ? retType.err : null;
+      const wrappedErr = innerErrType !== null
+        ? wrapErrMember(`${tmpName}.err`, innerErrType, errSlot)
+        : `${tmpName}.err`;
+      out.push(`${ind(depth + 1)}${retCType} _err = {1, {.err = ${wrappedErr}}};`);
       out.push(`${ind(depth + 1)}return _err;`);
       out.push(`${ind(depth)}}`);
 

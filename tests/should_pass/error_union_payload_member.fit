@@ -1,0 +1,14 @@
+enum IoError { NotFound, Denied }
+enum ParseError { Malformed(Chars) }
+
+type ConfigError = IoError | ParseError
+
+fn open_it()           -> Result<Int, IoError>
+fn parse_it()          -> Result<Int, ParseError>
+fn make_parse_error()  -> ParseError
+
+fn load() -> Result<Int, ConfigError> {
+    let a = open_it()?
+    let b = parse_it()?
+    Err(make_parse_error())
+}
