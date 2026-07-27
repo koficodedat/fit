@@ -1,0 +1,14 @@
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+enum Held {
+    Holding(Conn),
+}
+
+record Wrapper {
+    h: Held,
+}
+
+fn close(c: move Conn) -> ()

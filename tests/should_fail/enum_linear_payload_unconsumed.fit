@@ -1,0 +1,20 @@
+// A linear enum value must be consumed — `h` wraps a Conn via a linear
+// payload and is never consumed before leak_enum() returns.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+enum Held {
+    Holding(Conn),
+}
+
+fn open() -> Conn
+fn close(c: move Conn) -> ()
+fn make_held(c: move Conn) -> Held
+
+fn leak_enum() -> () {
+    let c = open()
+    let h = make_held(c)
+}

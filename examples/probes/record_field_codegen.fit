@@ -1,24 +1,30 @@
 // PROBE — captures codegen behavior for aggregate field types.
-// Both the record and resource emission loops in codegen.ts hardcode `int`
-// for every field regardless of declared type.
+// Both the record and resource emission loops in codegen.ts hardcode `int` for
+// every field regardless of declared type. Demonstrated here with non-linear
+// fields only, since records may no longer hold linear values.
 
 resource Inner {
     fd:      Int,
     cleanup: close_inner,
 }
 
-record Wrapper {
-    inner: Inner,
-    count: Int,
+record Point {
+    x: Int,
+    y: Int,
+}
+
+record Line {
+    start: Point,
+    end:   Point,
 }
 
 resource Outer {
-    inner: Inner,
-    tag:   Int,
+    inner:   Inner,
+    tag:     Int,
     cleanup: close_outer,
 }
 
 fn close_inner(i: move Inner) -> ()
 fn close_outer(o: move Outer) -> ()
-fn make_wrapper(i: move Inner) -> Wrapper
+fn make_line(p: Point) -> Line
 fn noop() -> ()

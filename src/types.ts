@@ -317,6 +317,25 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   // resolve to { kind: "enum" } rather than plain. Used from here on.
   const wideResolveEnv: WideResolveEnv = { resources, aliases, enumDecls };
 
+  // Record field validation. Records declare no cleanup, so under forced
+  // classification they may not own linear values. Runs after the enum pass so
+  // enum-typed fields resolve to { kind: "enum" } and linear enums are caught
+  // alongside resources.
+  for (const decl of program.decls) {
+    if (decl.kind === "record") {
+      for (const f of decl.fields) {
+        const fieldType = resolveType(f.type_, wideResolveEnv);
+        if (fieldType.mode === "linear") {
+          const typeName = "name" in fieldType ? fieldType.name : "?";
+          buildErrors.push({
+            message: `record '${decl.name}' has linear field '${f.name}' of type '${typeName}' — records declare no cleanup and cannot own linear values; use a resource or an enum variant`,
+            pos: decl.pos,
+          });
+        }
+      }
+    }
+  }
+
   // Pass 1b: build all function signatures.
   for (const decl of program.decls) {
     if (decl.kind === "fn") {

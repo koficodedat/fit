@@ -1,0 +1,15 @@
+resource Inner {
+    fd:      Int,
+    cleanup: close_inner,
+}
+
+resource Outer {
+    inner:   Inner,
+    tag:     Int,
+    cleanup: close_outer,
+}
+
+fn close_inner(i: move Inner) -> ()
+fn close_outer(o: move Outer) -> ()
+fn make_outer(i: move Inner) -> Outer
+fn use_outer(o: move Outer) -> ()

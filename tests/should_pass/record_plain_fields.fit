@@ -1,0 +1,19 @@
+record Point {
+    x: Int,
+    y: Int,
+}
+
+record Line {
+    start: Point,
+    end:   Point,
+}
+
+enum Color { Red, Green }
+
+record Styled {
+    p: Point,
+    c: Color,
+}
+
+fn make_point(x: Int, y: Int) -> Point
+fn noop() -> ()

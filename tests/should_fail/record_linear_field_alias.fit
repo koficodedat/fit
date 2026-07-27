@@ -1,0 +1,26 @@
+// Records may not own linear values (Option A) — rejected at the record
+// declaration. Motivating case: worse than a leak — because Holder was
+// unrestricted, it carried no use-once obligation, so the same wrapped Conn
+// could be handed out repeatedly. See FIT-v0.1-investigation-records.md and
+// FIT-v0.1-records-linear-fields.md.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+record Holder {
+    c: Conn,
+}
+
+fn open() -> Conn
+fn close(c: move Conn) -> ()
+fn make_holder(c: move Conn) -> Holder
+fn use_holder(h: Holder) -> ()
+
+fn double_use() -> () {
+    let c = open()
+    let h = make_holder(c)
+    use_holder(h)
+    use_holder(h)
+}

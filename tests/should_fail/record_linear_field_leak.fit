@@ -1,0 +1,23 @@
+// Records may not own linear values (Option A) — rejected at the record
+// declaration. Motivating case: a linear resource passed into a record used
+// to be untracked from that point on — `h` needed no consumption and the
+// Conn inside it was never cleaned up. See FIT-v0.1-investigation-records.md
+// and FIT-v0.1-records-linear-fields.md.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close,
+}
+
+record Holder {
+    c: Conn,
+}
+
+fn open() -> Conn
+fn close(c: move Conn) -> ()
+fn make_holder(c: move Conn) -> Holder
+
+fn leak() -> () {
+    let c = open()
+    let h = make_holder(c)
+}
