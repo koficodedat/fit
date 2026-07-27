@@ -112,13 +112,39 @@ Any in-place optimization must be unobservable (no aliasing) or it violates no-m
 is per-*type*; signatures inherit it. A `resource` with empty cleanup is an error — "this
 should be plain data."
 
+**Aggregates inherit the same question.** A `record` declares no cleanup, so it is plain
+data — and its fields must therefore be **unrestricted**. Two distinct violations follow:
+- A record field of **linear** type (a resource, or an enum carrying a linear payload) is a
+  compile error: there is no cleanup to fire for it and no owner to track it, so the value
+  would leak and could be aliased freely through copies of the record.
+- A record field of **affine** type is a compile error for a different reason: records are
+  unrestricted and therefore copyable, and copying a record would duplicate an affine value
+  that must not be duplicated.
+
+An aggregate that owns non-unrestricted values must be a `resource`, declaring cleanup that
+covers them, or an `enum`, whose variants do propagate linearity (§2.4).
+
+*(Added v0.1, from a probe rather than from reasoning: records previously resolved to
+unrestricted regardless of field type, so a resource placed inside one silently leaked and
+could be handed out repeatedly. The v0.1 checker enforces the linear case; the affine case is
+unenforced only because affine is not yet implemented — `MemoryMode` is currently
+`"unrestricted" | "linear"`. Whoever implements affine must extend the check. See
+`poc-findings.md`, "Records do not participate in linearity".)*
+
 ### 2.4 Type-system keywords *(settled, was O5)*
-- **Product types** (plain data, named fields): `record`
-- **Sum types** (tagged unions): `enum`
+- **Product types** (plain data, named fields): `record` — all fields must be unrestricted (§2.3)
+- **Sum types** (tagged unions): `enum` — a variant **may** carry a linear payload, in which
+  case the enum is itself linear
 
 These are the only two type-declaration keywords for data. `resource` is the keyword for
 linear types that declare cleanup (§2.3). All three are reserved; rejected synonyms
 (`data`, `struct`, `union`, `sum`) are also reserved to prevent future conflicts.
+
+The asymmetry between the two is deliberate and follows from §2.3. An `enum` carrying a
+linear payload becomes linear itself: it has a tag, so the compiler knows which variant is
+live, and exactly-once tracking and cleanup stay well-defined. A `record` has no tag and
+declares no cleanup, so a linear field inside it would be owned by nothing. The type that
+owns a resource must be the type that says how to release it.
 
 *(Evidence: O5 closed Phase 1. Keywords chosen for familiarity and clarity of intent.)*
 
@@ -223,7 +249,8 @@ Variant names need not be globally unique across enums. A bare variant name `V` 
     lends because the body never transfers `conn`; a state transition
     (`handshake(conn: Conn<Fresh>) -> Conn<Ready>`) consumes because it returns `conn` in a
     new state; and an ownership-into-aggregate call (`pool_add(pool, conn) -> Pool`) consumes
-    `conn` because the body stores it into `pool`.
+    `conn` because the body stores it into `pool`. Per §2.3, an aggregate that owns linear
+    values must be a `resource` declaring cleanup — `Pool` here is a resource, not a record.
 - **[AMENDED] Extern annotation for linear parameters.** Functions without bodies (externs,
   FFI declarations, abstract interfaces) cannot be inferred — the checker has no body to
   inspect. For any extern function with any linear parameter (resource or enum), the programmer must
