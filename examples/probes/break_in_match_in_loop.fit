@@ -1,0 +1,24 @@
+// PROBE — DOCUMENTS A SILENT MISCOMPILATION. Type-checks, compiles clean under
+// -Werror, and runs wrong: the loop never terminates.
+//
+// `break` inside a match arm lowers to `break` inside a C switch, which exits
+// the switch rather than the enclosing while(1). The loop-exit path the FIT
+// source specifies (Done => break) is unreachable at runtime, and everything
+// after the loop is dead.
+//
+// See harness.c alongside this file for the runtime demonstration.
+
+enum Event { More, Done }
+
+fn next_event() -> Event
+fn finish() -> ()
+
+fn drain_events() -> () {
+    loop {
+        match next_event() {
+            More => { },
+            Done => break,
+        }
+    }
+    finish()
+}

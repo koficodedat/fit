@@ -1,0 +1,25 @@
+// PROBE — DOCUMENTS A KNOWN CODEGEN GAP. Type-checks; generates invalid C.
+// FIT has no `return` keyword — a tail expression IS the return value. Codegen
+// implements that for Ok(...) and Err(...) only; every other tail expression is
+// emitted as a bare statement and its value discarded. A function with a
+// non-unit return type whose body ends in a call falls off its end.
+//
+// tail_call_value is the defect. tail_call_unit and tail_ok are controls that
+// exercise the two paths which DO work, so the diagnostic count isolates it.
+
+enum Status { Ready, Failed }
+
+fn compute() -> Status
+fn side_effect() -> ()
+
+fn tail_call_value() -> Status {
+    compute()
+}
+
+fn tail_call_unit() -> () {
+    side_effect()
+}
+
+fn tail_ok() -> Result<Status, ()> {
+    Ok(compute())
+}
