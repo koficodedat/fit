@@ -178,6 +178,8 @@ FIT earns its keep if those four differences produce meaningfully better program
 
 ## v0.1 Phase — Module system (2026-06-08)
 
+**Convention — phase sections are point-in-time records.** Test counts, line counts, and commit references inside any `v0.1 Phase` section describe state as of that round, and are deliberately not refreshed when later rounds land. Refreshing them would destroy the trend data they exist to carry. Current counts live in the most recent phase section.
+
 ### What landed
 
 Minimal flat-namespace module system: `import filename` loads all declarations from
@@ -275,7 +277,7 @@ After Round B, every v0.1 statement, expression, and declaration form has a code
 
 ### smtp.fit — type-checks, does not codegen
 
-`smtp.fit` is the third canonical from the PoC charter. It type-checks (zero check errors) but does not produce valid C99. The underlying limitations are documented in the Known Limitations table above (undeclared identifier silent acceptance; type alias raw in C output). `smtp.fit` is best characterized as **type-checking-only as a standalone program**; codegen would require either a stdlib sketch supplying the missing declarations or extending the file to declare them locally.
+`smtp.fit` is the third canonical from the PoC charter. It type-checks (zero check errors) but does not produce valid C99. One blocker remains, documented in the Known Limitations table above: undeclared identifier silent acceptance, which covers both the undeclared `fn next` and the undeclared `None`/`Some` variants. (The type-alias blocker originally listed here was closed in `23a673c`.) `smtp.fit` is best characterized as **type-checking-only as a standalone program**; codegen would require either a stdlib sketch supplying the missing declarations or extending the file to declare them locally.
 
 ### Test count
 
