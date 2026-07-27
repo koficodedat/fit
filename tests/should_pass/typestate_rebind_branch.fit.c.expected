@@ -2,10 +2,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+typedef int Bool;
+
 typedef struct {
 } Conn;
-
-typedef int Bool;
 
 extern void close_conn(Conn c);
 extern Conn open_conn(void);

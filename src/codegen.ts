@@ -109,6 +109,13 @@ function collectPlainTypeNames(env: TypeEnv, program: Program): string[] {
     visit(sig.returnType);
     for (const p of sig.params) visit(p.type_);
   }
+  for (const decl of program.decls) {
+    if (decl.kind === "enum") {
+      for (const v of decl.variants) {
+        if (v.payload !== null) visit(resolveType(v.payload, env));
+      }
+    }
+  }
   return names;
 }
 
@@ -142,6 +149,27 @@ export function codegen(program: Program): string {
       .filter(d => d.kind === "fn" && d.body === null)
       .map(d => (d as { name: string }).name)
   );
+
+  // Plain-type typedefs (opaque types used in signatures or enum payloads, lowered to int).
+  const plainNames = collectPlainTypeNames(env, program);
+  for (const name of plainNames) {
+    out.push(`typedef int ${name};`);
+  }
+  if (plainNames.length > 0) {
+    out.push("");
+  }
+
+  // Type alias typedefs. Erased to int — nothing in v0.1 discriminates an error
+  // union; ? propagates the whole value and no syntax destructures an alias.
+  for (const decl of program.decls) {
+    if (decl.kind === "type_alias") {
+      out.push(`/* error union ${decl.name} = ${decl.members.join(" | ")} */`);
+      out.push(`typedef int ${decl.name};`);
+    }
+  }
+  if (program.decls.some(d => d.kind === "type_alias")) {
+    out.push("");
+  }
 
   // Record struct typedefs (aggregate types, no cleanup).
   for (const decl of program.decls) {
@@ -195,27 +223,6 @@ export function codegen(program: Program): string {
       }
       out.push("");
     }
-  }
-
-  // Type alias typedefs. Erased to int — nothing in v0.1 discriminates an error
-  // union; ? propagates the whole value and no syntax destructures an alias.
-  for (const decl of program.decls) {
-    if (decl.kind === "type_alias") {
-      out.push(`/* error union ${decl.name} = ${decl.members.join(" | ")} */`);
-      out.push(`typedef int ${decl.name};`);
-    }
-  }
-  if (program.decls.some(d => d.kind === "type_alias")) {
-    out.push("");
-  }
-
-  // Plain-type typedefs (opaque types used in signatures, lowered to int).
-  const plainNames = collectPlainTypeNames(env, program);
-  for (const name of plainNames) {
-    out.push(`typedef int ${name};`);
-  }
-  if (plainNames.length > 0) {
-    out.push("");
   }
 
   // Result tagged-union typedefs.

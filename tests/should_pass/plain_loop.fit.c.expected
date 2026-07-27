@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+typedef int String;
+
 typedef struct {
   int sock;
 } Conn;
@@ -10,8 +12,6 @@ extern void force_close(Conn v);
 typedef enum {
   ConnState_Ready = 0
 } ConnState;
-
-typedef int String;
 
 extern void send_msg(Conn c, String msg);
 extern String get_msg(void);

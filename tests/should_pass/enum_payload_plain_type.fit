@@ -1,0 +1,7 @@
+enum Message {
+    Text(Chars),
+    Empty,
+}
+
+fn read_message() -> Message
+fn handle(m: Message) -> ()

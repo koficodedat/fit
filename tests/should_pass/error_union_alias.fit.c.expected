@@ -2,6 +2,11 @@
 #include <string.h>
 #include <stdlib.h>
 
+typedef int Int;
+
+/* error union ConfigError = IoError | ParseError */
+typedef int ConfigError;
+
 typedef struct {
   int fd;
 } File;
@@ -14,11 +19,6 @@ typedef enum {
 typedef enum {
   ParseError_Malformed = 0
 } ParseError;
-
-/* error union ConfigError = IoError | ParseError */
-typedef int ConfigError;
-
-typedef int Int;
 
 typedef struct {
   int tag;

@@ -1,0 +1,16 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef int Chars;
+
+typedef struct {
+  int tag;
+  union {
+    Chars Text;
+  };
+} Message;
+
+extern Message read_message(void);
+extern void handle(Message m);
+

@@ -2,6 +2,10 @@
 #include <string.h>
 #include <stdlib.h>
 
+typedef int CardDetails;
+typedef int Receipt;
+typedef int Cents;
+
 typedef struct {
   int token_id;
 } AuthToken;
@@ -13,10 +17,6 @@ typedef enum {
   PaymentError_InvalidCard = 2,
   PaymentError_AlreadyCharged = 3
 } PaymentError;
-
-typedef int CardDetails;
-typedef int Receipt;
-typedef int Cents;
 
 typedef struct {
   int tag;

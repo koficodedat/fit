@@ -1,0 +1,18 @@
+// PROBE — DOCUMENTS A KNOWN CODEGEN GAP. Type-checks; generates invalid C.
+// Enums are emitted in source order. An enum whose payload is another enum
+// declared later in the file produces a forward reference. Reordering the
+// dependency-free typedef blocks (this round) does not address ordering
+// *among* aggregates.
+
+enum Outer {
+    Wraps(Inner),
+    Nothing,
+}
+
+enum Inner {
+    A,
+    B,
+}
+
+fn make_outer() -> Outer
+fn use_outer(o: Outer) -> ()
