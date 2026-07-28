@@ -1,0 +1,28 @@
+// PROBE — same defect as loop_linearity_drop_break.fit, reached through an if
+// rather than a match. Confirms the defect predates the goto lowering (00fa616):
+// a break inside an if was already a plain C break before that change, so this
+// path was already reachable and merely undemonstrated.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close_conn,
+}
+
+fn open_conn() -> Conn
+fn close_conn(c: move Conn) -> ()
+fn should_stop() -> Int
+fn done() -> ()
+
+fn double_cleanup_if() -> () {
+    let c = open_conn()
+    loop {
+        if should_stop() {
+            drop(c)
+            break
+        } else {
+            drop(c)
+            break
+        }
+    }
+    done()
+}

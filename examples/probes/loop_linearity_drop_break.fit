@@ -1,0 +1,23 @@
+// PROBE — DOCUMENTS A KNOWN CODEGEN DEFECT (docs/break-loop-live-set-finding.md).
+// Type-checks; cleanup fires twice. case "loop" discards its body's live set, so
+// a resource consumed inside the loop is still considered live afterwards and is
+// cleaned up again at function exit. Simplified from the filed repro — direct
+// drop + break rather than via match arms.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close_conn,
+}
+
+fn open_conn() -> Conn
+fn close_conn(c: move Conn) -> ()
+fn done() -> ()
+
+fn double_cleanup() -> () {
+    let c = open_conn()
+    loop {
+        drop(c)
+        break
+    }
+    done()
+}

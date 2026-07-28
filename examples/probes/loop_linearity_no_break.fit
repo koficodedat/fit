@@ -1,0 +1,20 @@
+// PROBE — PREDICTED CHECKER UNSOUNDNESS. Type-checks; frees the same resource
+// on every iteration. Nothing models linearity across loop re-entry: the
+// checker's checkInnerScopeExit skips a binding whose outer copy is not yet
+// moved, so consuming inside a loop body raises no error even though the body
+// runs unboundedly. See harness for the runtime demonstration.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close_conn,
+}
+
+fn open_conn() -> Conn
+fn close_conn(c: move Conn) -> ()
+
+fn leak_loop() -> () {
+    let c = open_conn()
+    loop {
+        drop(c)
+    }
+}

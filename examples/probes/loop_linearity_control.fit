@@ -1,0 +1,23 @@
+// CONTROL PROBE — the shape that is correct today. The resource is not consumed
+// inside the loop, so nothing needs propagating out of it and cleanup fires
+// exactly once. Establishes that the machinery works when the loop body leaves
+// ownership unchanged, which is what the other three violate.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close_conn,
+}
+
+fn open_conn() -> Conn
+fn close_conn(c: move Conn) -> ()
+fn should_stop() -> Int
+
+fn correct_shape() -> () {
+    let c = open_conn()
+    loop {
+        if should_stop() {
+            break
+        } else {}
+    }
+    drop(c)
+}
