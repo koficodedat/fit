@@ -1,0 +1,18 @@
+// PROBE — PREDICTED SILENT CHECKER UNSOUNDNESS. Parameter variant of
+// loop_linearity_no_break.fit. The let-bound version fails to compile because the
+// spurious post-loop cleanup lands outside the let block; a move-mode parameter is
+// in scope for the whole body, so the same defect is predicted to compile cleanly
+// and free the same resource on every iteration at runtime.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close_conn,
+}
+
+fn close_conn(c: move Conn) -> ()
+
+fn leak_loop_param(c: Conn) -> () {
+    loop {
+        drop(c)
+    }
+}

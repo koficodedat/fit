@@ -1,0 +1,24 @@
+// PROBE — PREDICTED SILENT DOUBLE CLEANUP. Parameter variant of
+// loop_linearity_drop_break.fit. This is the shape docs/break-loop-live-set-finding.md
+// described as "compiles clean, wrong at runtime" — a claim that did not hold for
+// the let-bound repro, which fails to compile. A move-mode parameter stays in scope
+// for the whole body, so the spurious post-loop cleanup should compile and fire.
+//
+// Note this program is VALID FIT: c is consumed exactly once on the path taken.
+// The checker is right to accept it; codegen emits a cleanup it should not.
+
+resource Conn {
+    fd:      Int,
+    cleanup: close_conn,
+}
+
+fn close_conn(c: move Conn) -> ()
+fn done() -> ()
+
+fn double_cleanup_param(c: Conn) -> () {
+    loop {
+        drop(c)
+        break
+    }
+    done()
+}
