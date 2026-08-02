@@ -101,6 +101,26 @@ test("error: unterminated block in fn body", () => {
   );
 });
 
+// ─── EXPRESSION ERRORS ───────────────────────────────────────────────────────
+
+test("error: integer literal exceeds C int max (2147483647)", () => {
+  expect(() => parse("fn f() -> Int { 2147483648 }", "t.fit")).toThrow(
+    /exceeds 2147483647.*C 'int'/
+  );
+});
+
+test("error: integer literal exceeds C int max — very long digit run", () => {
+  // Guards against String(parseInt(...)) emitting non-C-integer syntax (e.g. "1e+23")
+  // for a digit run far outside int range — reject at parse time instead.
+  expect(() => parse("fn f() -> Int { 100000000000000000000000 }", "t.fit")).toThrow(
+    /exceeds 2147483647/
+  );
+});
+
+test("integer literal at exactly C int max is accepted", () => {
+  expect(() => parse("fn f() -> Int { 2147483647 }", "t.fit")).not.toThrow();
+});
+
 // ─── LOCATION ACCURACY ───────────────────────────────────────────────────────
 
 test("error location: correct line reported", () => {

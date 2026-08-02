@@ -433,15 +433,28 @@ class Parser {
   }
 
   // True, without consuming anything, if the statement starting here is the rebind
-  // shape `name = expr` — a bare identifier followed by a single '=' (not '=='). Scans
-  // the raw source directly, mirroring peekIdent()'s style.
+  // shape `name = expr` — a bare identifier followed by a single '=' (not '=='). Saves
+  // the full lexer position (idx/line/col), uses the real skip()/ident() to look ahead
+  // (so comments — `//`, `/* */` — between tokens are handled correctly, unlike a raw
+  // whitespace-only regex scan), then restores position unconditionally so the caller's
+  // subsequent real parse re-reads the same tokens from scratch.
   private looksLikeRebind(): boolean {
-    let i = this.idx;
-    while (i < this.src.length && /[ \t\r\n]/.test(this.src[i])) i++;
-    if (i >= this.src.length || !/[a-zA-Z_]/.test(this.src[i])) return false;
-    while (i < this.src.length && /[a-zA-Z0-9_]/.test(this.src[i])) i++;
-    while (i < this.src.length && /[ \t\r\n]/.test(this.src[i])) i++;
-    return this.src[i] === "=" && this.src[i + 1] !== "=";
+    const savedIdx = this.idx;
+    const savedLine = this.line;
+    const savedCol = this.col;
+    let result: boolean;
+    this.skip();
+    if (!/[a-zA-Z_]/.test(this.peek())) {
+      result = false;
+    } else {
+      this.ident();
+      this.skip();
+      result = this.peek() === "=" && this.peek(1) !== "=";
+    }
+    this.idx = savedIdx;
+    this.line = savedLine;
+    this.col = savedCol;
+    return result;
   }
 
   private parseExprFromName(name: string, p: Pos): Expr {
@@ -607,6 +620,15 @@ class Parser {
     }
     while (/[0-9]/.test(this.peek())) {
       s += this.advance();
+    }
+    // FIT's Int lowers directly to C's `int` (typedef int Int;), so a literal that
+    // doesn't fit overflows or (for very long digit runs) makes `String(parseInt(...))`
+    // emit non-integer C syntax (e.g. "1e+23") in codegen — reject at parse time rather
+    // than silently miscompiling.
+    if (Number(s) > 2147483647) {
+      this.err(
+        `integer literal '${s}' exceeds 2147483647, the maximum value of a C 'int' — FIT's Int type lowers directly to C's 'int'`
+      );
     }
     return s;
   }

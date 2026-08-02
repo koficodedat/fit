@@ -275,6 +275,31 @@ test("parse rebind", () => {
   }
 });
 
+test("parse rebind with a comment between name and '='", () => {
+  // Regression: looksLikeRebind used to scan whitespace only (a raw regex, not the
+  // real skip()), so a comment between the identifier and '=' made it miss the rebind
+  // shape and fall through to parseExpr() on just the leading identifier — which then
+  // chokes on the comment-hidden '='. Fixed by using the real skip()/ident() under a
+  // save/restore of lexer position, which — like skip() everywhere else in the parser —
+  // consumes both // and /* */ comments.
+  const stmts = parseFnBody("remaining /* comment */ = rest");
+  const s = stmts[0];
+  expect(s.kind).toBe("rebind");
+  if (s.kind === "rebind") {
+    expect(s.name).toBe("remaining");
+    expect(s.expr).toEqual({ kind: "var", name: "rest", pos: expect.any(Object) });
+  }
+});
+
+test("parse rebind with a line comment between name and '='", () => {
+  const stmts = parseFnBody("remaining // trailing comment\n = rest");
+  const s = stmts[0];
+  expect(s.kind).toBe("rebind");
+  if (s.kind === "rebind") {
+    expect(s.name).toBe("remaining");
+  }
+});
+
 test("parse call expression statement", () => {
   const stmts = parseFnBody("audit_log(receipt)");
   const s = stmts[0];
