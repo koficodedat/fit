@@ -152,6 +152,14 @@ function exprConsumesVar(
       return false;
     case "qualified_var":
       return false;
+    case "int_lit":
+    case "bool_lit":
+      return false;
+    case "binop":
+      // Operands of arithmetic/comparison ops are never moved themselves (Int/Bool
+      // are unrestricted), but a nested call inside an operand might consume `name` —
+      // e.g. `f(w) + 1`. OR both sides so that case is still detected.
+      return exprConsumesVar(name, expr.left, fnMap) || exprConsumesVar(name, expr.right, fnMap);
     default: {
       const _exhaustive: never = expr;
       return false;
@@ -265,6 +273,21 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
     nameOrigins.set(name, pos);
     return false;
   }
+
+  // Built-in: DivByZero, the error enum for `/` and `%` (FIT-v0.1-expression-grammar
+  // §4.1). Registered before any user declaration is processed — including in
+  // nameOrigins — so that a program declaring `enum DivByZero { ... }` is reported by
+  // checkDup as a duplicate rather than silently shadowing the built-in. Present in
+  // both enumDecls and enums so matching, exhaustiveness, and variant resolution all
+  // go through the same paths as a user-declared enum.
+  const builtinPos: Pos = { file: "<builtin>", line: 0, col: 0 };
+  nameOrigins.set("DivByZero", builtinPos);
+  enumDecls.set("DivByZero", {
+    name: "DivByZero",
+    isLinear: false,
+    variants: [{ name: "DivByZero", payload: null }],
+  });
+  enums.set("DivByZero", [{ enumName: "DivByZero", payload: null }]);
 
   // Pass 1a: resources, aliases, capabilities, records.
   // import decls should be stripped by the loader; silently skip if any leak through.

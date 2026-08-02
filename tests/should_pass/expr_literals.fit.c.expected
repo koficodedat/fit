@@ -1,0 +1,41 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef int Int;
+typedef int Bool;
+
+typedef enum {
+  E_Bad = 0
+} E;
+
+typedef struct {
+  int tag;
+  union { Bool ok; E err; };
+} R_Bool_E;
+
+extern void take_int(Int n);
+extern void take_bool(Bool b);
+
+R_Bool_E make_flag(void) {
+  return (R_Bool_E){0, {.ok = 1}};
+}
+
+Int answer(void) {
+  return 42;
+}
+
+void literals_demo(void) {
+  take_int(7);
+  take_bool(0);
+  {
+    Int x = 42;
+    {
+      Bool y = 1;
+      take_int(x);
+      take_bool(y);
+    }
+  }
+  return;
+}
+

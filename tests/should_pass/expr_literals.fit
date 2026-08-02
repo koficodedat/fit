@@ -1,0 +1,24 @@
+enum E { Bad }
+
+fn take_int(n: Int) -> ()
+fn take_bool(b: Bool) -> ()
+
+// Ok(...) position.
+fn make_flag() -> Result<Bool, E> {
+    Ok(true)
+}
+
+// Tail-expression position.
+fn answer() -> Int {
+    42
+}
+
+// Call-argument and let-initialiser positions.
+fn literals_demo() -> () {
+    take_int(7)
+    take_bool(false)
+    let x = 42
+    let y = true
+    take_int(x)
+    take_bool(y)
+}

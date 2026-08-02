@@ -1,0 +1,9 @@
+// DivByZero propagating into a function whose declared error type is a union alias
+// containing it, rather than DivByZero directly.
+enum OutOfRange { OutOfRange }
+type MathError = DivByZero | OutOfRange
+
+fn safe_div(a: Int, b: Int) -> Result<Int, MathError> {
+    let q = (a / b)?
+    Ok(q)
+}

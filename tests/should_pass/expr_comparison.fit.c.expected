@@ -1,0 +1,30 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef int Int;
+typedef int Bool;
+
+
+void comparisons_demo(void) {
+  {
+    Bool a = (1 < 2);
+    {
+      Bool b = (2 > 1);
+      {
+        Bool c = (1 <= 1);
+        {
+          Bool d = (2 >= 2);
+          {
+            Bool e = (1 == 1);
+            {
+              Bool f = (1 != 2);
+            }
+          }
+        }
+      }
+    }
+  }
+  return;
+}
+

@@ -1,0 +1,5 @@
+// a / b yields Result<Int, DivByZero>, not Int — using it as an arithmetic operand
+// without `?` must be rejected.
+fn bad_div(a: Int, b: Int) -> Int {
+    a / b + 0
+}

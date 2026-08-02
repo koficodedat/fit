@@ -75,6 +75,98 @@ function collectResultTypes(env: TypeEnv): FitType[] {
   return results;
 }
 
+// Scans every function body for literal/binop usage that needs a typedef but may
+// never appear in any function signature — so collectPlainTypeNames/collectResultTypes
+// (which only walk signatures) can't discover it. Two concrete gaps this closes:
+//   - `let x = 1 < 2` never puts Bool in any signature — Bool still needs `typedef int
+//     Bool;` or the generated C fails to compile ("use of undeclared identifier 'Bool'").
+//   - Result<Int, DivByZero> may never appear in any signature either (it can be
+//     `?`-unwrapped into a union alias before reaching one), so its typedef and Int's
+//     need the same forcing.
+type LiteralUsage = { needsInt: boolean; needsBool: boolean; needsDivByZero: boolean };
+
+function scanLiteralUsage(program: Program): LiteralUsage {
+  const usage: LiteralUsage = { needsInt: false, needsBool: false, needsDivByZero: false };
+
+  function visitExpr(e: Expr): void {
+    switch (e.kind) {
+      case "int_lit":
+        usage.needsInt = true;
+        return;
+      case "bool_lit":
+        usage.needsBool = true;
+        return;
+      case "binop":
+        if (e.op === "/" || e.op === "%") {
+          usage.needsInt = true;
+          usage.needsDivByZero = true;
+        } else if (e.op === "+" || e.op === "-" || e.op === "*") {
+          usage.needsInt = true;
+        } else {
+          usage.needsBool = true;
+        }
+        visitExpr(e.left);
+        visitExpr(e.right);
+        return;
+      case "ok":
+      case "err":
+      case "try":
+        visitExpr(e.expr);
+        return;
+      case "call":
+        e.args.forEach(visitExpr);
+        return;
+      default:
+        return;
+    }
+  }
+
+  function visitStmt(s: Stmt): void {
+    switch (s.kind) {
+      case "expr":
+        visitExpr(s.expr);
+        return;
+      case "let":
+        visitExpr(s.init);
+        return;
+      case "rebind":
+        visitExpr(s.expr);
+        return;
+      case "if":
+        visitExpr(s.cond);
+        s.then.forEach(visitStmt);
+        s.else_.forEach(visitStmt);
+        return;
+      case "loop":
+        s.body.forEach(visitStmt);
+        return;
+      case "match":
+        visitExpr(s.expr);
+        s.arms.forEach(a => a.body.forEach(visitStmt));
+        return;
+      case "break":
+      case "select":
+        return;
+      default:
+        return;
+    }
+  }
+
+  for (const decl of program.decls) {
+    if (decl.kind === "fn" && decl.body !== null) decl.body.forEach(visitStmt);
+  }
+  return usage;
+}
+
+// The exact FitType division/modulo codegen and checking use for a division result —
+// kept in one place so both agree on the C type name (R_Int_DivByZero).
+const DIV_RESULT_TYPE: FitType = {
+  kind: "result",
+  mode: "unrestricted",
+  ok: { kind: "plain", mode: "unrestricted", name: "Int" },
+  err: { kind: "enum", mode: "unrestricted", name: "DivByZero" },
+};
+
 // Collects all distinct plain type names used across function signatures.
 // Resources, enums, and records are already emitted as structs/enums — excluded here.
 function collectPlainTypeNames(env: TypeEnv, program: Program): string[] {
@@ -150,6 +242,7 @@ export function codegen(program: Program): string {
     if (decl.kind === "enum") enumVariants.set(decl.name, decl.variants);
   }
   const ctx: CodegenCtx = { env, enumVariants };
+  const literalUsage = scanLiteralUsage(program);
 
   const out: string[] = [];
 
@@ -168,6 +261,15 @@ export function codegen(program: Program): string {
 
   // Plain-type typedefs (opaque types used in signatures or enum payloads, lowered to int).
   const plainNames = collectPlainTypeNames(env, program);
+  // Int/Bool literals and binops may be used purely locally (e.g. `let x = 1 < 2`)
+  // without Int/Bool ever appearing in any function signature — force them in when
+  // that happens, or the generated C references an undefined type. See scanLiteralUsage.
+  if (literalUsage.needsInt && !plainNames.includes("Int")) {
+    plainNames.push("Int");
+  }
+  if (literalUsage.needsBool && !plainNames.includes("Bool")) {
+    plainNames.push("Bool");
+  }
   for (const name of plainNames) {
     out.push(`typedef int ${name};`);
   }
@@ -229,6 +331,15 @@ export function codegen(program: Program): string {
     }
   }
 
+  // DivByZero: built-in unit-only enum for `/` and `%` (§4.1). Not a program.decls
+  // entry — no `enum` decl exists for it — so it isn't reached by the loop above.
+  // Emitted only when the program actually uses division or modulo, following the
+  // same conditional-emission pattern as the plain-type typedefs.
+  if (literalUsage.needsDivByZero) {
+    out.push("typedef enum {\n  DivByZero_DivByZero = 0\n} DivByZero;");
+    out.push("");
+  }
+
   // Type alias typedefs: tagged union over the alias's member types. A member
   // carrying a payload lowers to a struct, and struct-into-int is not a legal C
   // conversion — so the alias itself must be tagged, not erased to int.
@@ -249,7 +360,13 @@ export function codegen(program: Program): string {
   }
 
   // Result tagged-union typedefs.
-  for (const rt of collectResultTypes(env)) {
+  const resultTypes = collectResultTypes(env);
+  // As with Int above: force R_Int_DivByZero in when `/` or `%` are used, since the
+  // signature walk that builds resultTypes may never see it directly.
+  if (literalUsage.needsDivByZero && !resultTypes.some(rt => cTypeName(rt) === cTypeName(DIV_RESULT_TYPE))) {
+    resultTypes.push(DIV_RESULT_TYPE);
+  }
+  for (const rt of resultTypes) {
     if (rt.kind !== "result") continue;
     const name = cTypeName(rt);
     const okT = cTypeName(rt.ok);
@@ -766,9 +883,72 @@ function emitExpr(
       return { cExpr, fitType: { kind: "enum", mode, name: expr.enumName } };
     }
 
+    case "int_lit":
+      return { cExpr: String(expr.value), fitType: { kind: "plain", mode: "unrestricted", name: "Int" } };
+
+    case "bool_lit":
+      // C99 has no `bool` without <stdbool.h>, and Bool lowers as a plain (int) type.
+      return {
+        cExpr: expr.value ? "1" : "0",
+        fitType: { kind: "plain", mode: "unrestricted", name: "Bool" },
+      };
+
+    case "binop": {
+      if (expr.op === "/" || expr.op === "%") {
+        return emitDivMod(expr, depth, ctx, retType, state, out);
+      }
+      const left = emitExpr(expr.left, depth, ctx, retType, state, out);
+      const right = emitExpr(expr.right, depth, ctx, retType, state, out);
+      // Parenthesise so C precedence cannot disagree with FIT's — precedence was
+      // already resolved by the parser; this just protects the resulting string.
+      const cExpr = `(${left.cExpr} ${expr.op} ${right.cExpr})`;
+      const isArith = expr.op === "+" || expr.op === "-" || expr.op === "*";
+      const fitType: FitType = {
+        kind: "plain",
+        mode: "unrestricted",
+        name: isArith ? "Int" : "Bool",
+      };
+      return { cExpr, fitType };
+    }
+
     default: {
       const _exhaustive: never = expr;
       return { cExpr: "0", fitType: { kind: "unit", mode: "unrestricted" } };
     }
   }
+}
+
+// Division/modulo push statements onto `out` exactly as the "try" case does (§1.3):
+// a temp for the once-evaluated divisor, a zero-check, and construction of the Ok/Err
+// Result value — then the temp itself (not `.ok`) is returned as cExpr, so a wrapping
+// `?` (the existing, unmodified "try" case) unwraps it exactly as it does for a call.
+function emitDivMod(
+  expr: Expr & { kind: "binop" },
+  depth: number,
+  ctx: CodegenCtx,
+  retType: FitType,
+  state: EmitState,
+  out: string[]
+): { cExpr: string; fitType: FitType } {
+  const left = emitExpr(expr.left, depth, ctx, retType, state, out);
+  const right = emitExpr(expr.right, depth, ctx, retType, state, out);
+
+  // Bind the divisor to its own temp before the zero-check — otherwise the check and
+  // the division/modulo each evaluate `right` again, which is wrong if it has side
+  // effects and wasteful even if it doesn't.
+  const divisorTmp = `_t${state.tmp.n++}`;
+  out.push(`${ind(depth)}Int ${divisorTmp} = ${right.cExpr};`);
+
+  const resultCType = cTypeName(DIV_RESULT_TYPE);
+  const resultTmp = `_t${state.tmp.n++}`;
+  out.push(`${ind(depth)}${resultCType} ${resultTmp};`);
+  out.push(`${ind(depth)}if (${divisorTmp} == 0) {`);
+  out.push(`${ind(depth + 1)}${resultTmp} = (${resultCType}){1, {.err = DivByZero_DivByZero}};`);
+  out.push(`${ind(depth)}} else {`);
+  out.push(
+    `${ind(depth + 1)}${resultTmp} = (${resultCType}){0, {.ok = (${left.cExpr} ${expr.op} ${divisorTmp})}};`
+  );
+  out.push(`${ind(depth)}}`);
+
+  return { cExpr: resultTmp, fitType: DIV_RESULT_TYPE };
 }

@@ -1,0 +1,6 @@
+// (a / b)? is the shape §1.2 identifies as breakable if grouping doesn't attach `?`.
+fn div_mod_demo(a: Int, b: Int) -> Result<Int, DivByZero> {
+    let q = (a / b)?
+    let r = (a % b)?
+    Ok(q + r)
+}

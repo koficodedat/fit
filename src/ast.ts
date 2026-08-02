@@ -41,6 +41,8 @@ export type Stmt =
   | { kind: "break"; pos: Pos }
   | { kind: "select"; atoms: string[]; from: string; pos: Pos };
 
+export type BinOp = "+" | "-" | "*" | "/" | "%" | "<" | ">" | "<=" | ">=" | "==" | "!=";
+
 export type Expr =
   | { kind: "var"; name: string; pos: Pos }
   | { kind: "call"; fn: string; args: Expr[]; pos: Pos }
@@ -48,7 +50,10 @@ export type Expr =
   | { kind: "ok"; expr: Expr; pos: Pos }
   | { kind: "err"; expr: Expr; pos: Pos }
   | { kind: "unit_val"; pos: Pos }
-  | { kind: "qualified_var"; enumName: string; name: string; pos: Pos };
+  | { kind: "qualified_var"; enumName: string; name: string; pos: Pos }
+  | { kind: "int_lit"; value: number; pos: Pos }
+  | { kind: "bool_lit"; value: boolean; pos: Pos }
+  | { kind: "binop"; op: BinOp; left: Expr; right: Expr; pos: Pos };
 
 export type FieldDef = { name: string; type_: Type };
 export type ParamDef = { name: string; type_: Type; annotatedMode: "move" | "lend" | null };

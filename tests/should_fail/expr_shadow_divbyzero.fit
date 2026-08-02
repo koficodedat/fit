@@ -1,0 +1,3 @@
+// DivByZero is built-in, registered before any user declaration is processed — a
+// program that declares its own DivByZero must be rejected as a duplicate.
+enum DivByZero { Whatever }

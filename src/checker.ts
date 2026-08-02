@@ -492,6 +492,42 @@ function checkExpr(
       // Return unrestricted plain type; no binding consumption.
       return { kind: "plain", mode: "unrestricted", name: expr.enumName };
 
+    case "int_lit":
+      return { kind: "plain", mode: "unrestricted", name: "Int" };
+
+    case "bool_lit":
+      return { kind: "plain", mode: "unrestricted", name: "Bool" };
+
+    case "binop": {
+      const leftType = checkExpr(expr.left, scope, caps, env, enclosingErr, enclosingFn, errors);
+      const rightType = checkExpr(expr.right, scope, caps, env, enclosingErr, enclosingFn, errors);
+      // §5.2 leaves equality on non-Int types an open design question — this
+      // implements Int equality only, uniformly with arithmetic and ordering.
+      const isInt = (t: FitType): boolean => "name" in t && t.name === "Int";
+      if (!isInt(leftType)) {
+        errors.push({ message: `left operand of '${expr.op}' must be Int`, pos: expr.pos });
+      }
+      if (!isInt(rightType)) {
+        errors.push({ message: `right operand of '${expr.op}' must be Int`, pos: expr.pos });
+      }
+      if (expr.op === "/" || expr.op === "%") {
+        // §5.3: division/modulo are partial — they return Result<Int, DivByZero>,
+        // not Int, so a caller must unwrap with `?` (or match) before using the value
+        // as an Int. DivByZero is the built-in enum registered in buildTypeEnv.
+        return {
+          kind: "result",
+          mode: "unrestricted",
+          ok: { kind: "plain", mode: "unrestricted", name: "Int" },
+          err: { kind: "enum", mode: "unrestricted", name: "DivByZero" },
+        };
+      }
+      if (expr.op === "+" || expr.op === "-" || expr.op === "*") {
+        return { kind: "plain", mode: "unrestricted", name: "Int" };
+      }
+      // Remaining ops: < > <= >= == !=
+      return { kind: "plain", mode: "unrestricted", name: "Bool" };
+    }
+
     default: {
       const _exhaustive: never = expr;
       return { kind: "unit", mode: "unrestricted" };

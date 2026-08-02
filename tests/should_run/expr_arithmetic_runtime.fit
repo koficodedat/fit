@@ -1,0 +1,9 @@
+// Proves precedence and grouping are correct at runtime, not just stable in the
+// generated C text: (2 + 3) * 4 = 20, but 2 + 3 * 4 = 14. If precedence were wrong
+// (e.g. left-to-right with no climbing), both would print 20.
+fn print_int(n: Int) -> ()
+
+fn compute_and_print() -> () {
+    print_int((2 + 3) * 4)
+    print_int(2 + 3 * 4)
+}

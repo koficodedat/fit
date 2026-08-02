@@ -1,0 +1,10 @@
+fn take_int(n: Int) -> ()
+
+fn arithmetic_demo() -> () {
+    let a = 2 + 3 * 4        // mixed precedence: * before +
+    let b = (2 + 3) * 4      // grouping overrides precedence — differs from `a`
+    let c = 10 - 2 - 3       // left-associative subtraction
+    take_int(a)
+    take_int(b)
+    take_int(c)
+}

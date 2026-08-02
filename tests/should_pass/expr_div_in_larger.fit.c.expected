@@ -1,0 +1,32 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef int Int;
+
+typedef enum {
+  DivByZero_DivByZero = 0
+} DivByZero;
+
+typedef struct {
+  int tag;
+  union { Int ok; DivByZero err; };
+} R_Int_DivByZero;
+
+
+R_Int_DivByZero div_in_larger(Int a, Int b, Int c) {
+  Int _t0 = b;
+  R_Int_DivByZero _t1;
+  if (_t0 == 0) {
+    _t1 = (R_Int_DivByZero){1, {.err = DivByZero_DivByZero}};
+  } else {
+    _t1 = (R_Int_DivByZero){0, {.ok = (a / _t0)}};
+  }
+  R_Int_DivByZero _t2 = _t1;
+  if (_t2.tag != 0) {
+    R_Int_DivByZero _err = {1, {.err = _t2.err}};
+    return _err;
+  }
+  return (R_Int_DivByZero){0, {.ok = (_t2.ok + c)}};
+}
+

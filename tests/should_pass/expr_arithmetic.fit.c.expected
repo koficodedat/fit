@@ -1,0 +1,24 @@
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+typedef int Int;
+
+extern void take_int(Int n);
+
+void arithmetic_demo(void) {
+  {
+    Int a = (2 + (3 * 4));
+    {
+      Int b = ((2 + 3) * 4);
+      {
+        Int c = ((10 - 2) - 3);
+        take_int(a);
+        take_int(b);
+        take_int(c);
+      }
+    }
+  }
+  return;
+}
+

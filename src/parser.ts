@@ -11,6 +11,7 @@ import {
   CleanupDef,
   VariantDef,
   MatchArm,
+  BinOp,
 } from "./ast";
 
 export class ParseError extends Error {
@@ -414,23 +415,33 @@ class Parser {
       return this.parseSelect(p);
     }
 
-    // unit value expression statement: ()
-    if (this.peek() === "(" && this.peek(1) === ")") {
-      const expr = this.parseExpr(); // consumes ()
-      return { kind: "expr", expr, pos: p };
-    }
-
-    // expression or rebind — read leading identifier first
-    const name = this.ident();
-    this.skip();
-    if (this.peek() === "=" && this.peek(1) !== "=") {
-      this.advance(); // consume =
+    // Rebind (`name = expr`) is the only statement shape parseExpr can't parse on its
+    // own — everywhere else, an expression statement (identifier, literal, grouping,
+    // ... now potentially followed by operators) is just `parseExpr()`. Decide via a
+    // non-consuming lookahead so the common case can hand off to the full expression
+    // grammar untouched, instead of hand-reading a leading identifier first (which
+    // would stop at a bare primary and never climb precedence — e.g. `a / b + 0` as a
+    // statement would parse only `a` and choke on `/`).
+    if (this.looksLikeRebind()) {
+      const name = this.ident();
+      this.expect("=");
       const expr = this.parseExpr();
       return { kind: "rebind", name, expr, pos: p };
     }
-    // expression statement — re-enter parseExpr with name already consumed
-    const expr = this.parseExprFromName(name, p);
+    const expr = this.parseExpr();
     return { kind: "expr", expr, pos: p };
+  }
+
+  // True, without consuming anything, if the statement starting here is the rebind
+  // shape `name = expr` — a bare identifier followed by a single '=' (not '=='). Scans
+  // the raw source directly, mirroring peekIdent()'s style.
+  private looksLikeRebind(): boolean {
+    let i = this.idx;
+    while (i < this.src.length && /[ \t\r\n]/.test(this.src[i])) i++;
+    if (i >= this.src.length || !/[a-zA-Z_]/.test(this.src[i])) return false;
+    while (i < this.src.length && /[a-zA-Z0-9_]/.test(this.src[i])) i++;
+    while (i < this.src.length && /[ \t\r\n]/.test(this.src[i])) i++;
+    return this.src[i] === "=" && this.src[i + 1] !== "=";
   }
 
   private parseExprFromName(name: string, p: Pos): Expr {
@@ -486,7 +497,65 @@ class Parser {
     return e;
   }
 
+  // Precedence climbing, tightest first. Layered above parsePrimary — parsePrimary
+  // (and parseExprFromName's five parseTry call sites inside it) are untouched, so
+  // `a / b?` continues to parse as `a / (b?)` with zero special-casing.
   private parseExpr(): Expr {
+    return this.parseBinLevel(["==", "!="], () => this.parseComparisonLevel());
+  }
+
+  private parseComparisonLevel(): Expr {
+    return this.parseBinLevel(["<=", ">=", "<", ">"], () => this.parseAdditiveLevel());
+  }
+
+  private parseAdditiveLevel(): Expr {
+    return this.parseBinLevel(["+", "-"], () => this.parseMultiplicativeLevel());
+  }
+
+  private parseMultiplicativeLevel(): Expr {
+    return this.parseBinLevel(["*", "/", "%"], () => this.parsePrimary());
+  }
+
+  // Left-associative: fold repeatedly rather than recursing on the right.
+  private parseBinLevel(ops: string[], next: () => Expr): Expr {
+    let left = next();
+    let op: string | null;
+    while ((op = this.peekOp(ops)) !== null) {
+      const p = this.pos();
+      this.consumeOp(op);
+      const right = next();
+      left = { kind: "binop", op: op as BinOp, left, right, pos: p };
+    }
+    return left;
+  }
+
+  // Skips whitespace/comments, then checks whether one of `ops` (tried in the given
+  // order — callers list longer operators first, e.g. "<=" before "<") matches at the
+  // current position. Does not consume.
+  private peekOp(ops: string[]): string | null {
+    this.skip();
+    for (const op of ops) {
+      let matches = true;
+      for (let i = 0; i < op.length; i++) {
+        if (this.peek(i) !== op[i]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches) return op;
+    }
+    return null;
+  }
+
+  private consumeOp(op: string): void {
+    for (let i = 0; i < op.length; i++) this.advance();
+  }
+
+  // Primary expressions: what the grammar had before (var, call, Ok/Err, qualified
+  // access, unit) plus literals and grouping. Every branch that doesn't already funnel
+  // through parseExprFromName (whose five internal call sites cover `?` binding) must
+  // call parseTry itself — see the grouping branch below, mirroring the Ok/Err pattern.
+  private parsePrimary(): Expr {
     this.skip();
     const p = this.pos();
     if (this.peek() === "(" && this.peek(1) === ")") {
@@ -494,8 +563,52 @@ class Parser {
       this.advance();
       return { kind: "unit_val", pos: p };
     }
+    if (this.peek() === "(") {
+      this.advance(); // consume (
+      const inner = this.parseExpr();
+      this.skip();
+      this.expect(")");
+      // Must attach a trailing `?` here explicitly — parsePrimary never calls
+      // parseTry itself; only parseExprFromName's five sites do. Skipping this
+      // would silently drop `?` from `(a / b)?`.
+      return this.parseTry(inner);
+    }
+    if (this.peek() === "-") {
+      this.err(
+        `unexpected '-': unary negation is not supported (out of scope); did you mean a binary '-'?`
+      );
+    }
+    if (/[0-9]/.test(this.peek())) {
+      const digits = this.intLitDigits();
+      return this.parseTry({ kind: "int_lit", value: parseInt(digits, 10), pos: p });
+    }
     const name = this.ident();
+    return this.identOrLiteralFromName(name, p);
+  }
+
+  // `true`/`false` are contextual keywords, not reserved — recognised only on a full
+  // identifier match, so a variable named `truest` still parses as a var.
+  private identOrLiteralFromName(name: string, p: Pos): Expr {
+    if (name === "true") {
+      return this.parseTry({ kind: "bool_lit", value: true, pos: p });
+    }
+    if (name === "false") {
+      return this.parseTry({ kind: "bool_lit", value: false, pos: p });
+    }
     return this.parseExprFromName(name, p);
+  }
+
+  // Mirrors ident()'s shape: decimal digit run only — no hex, no underscores, no floats.
+  private intLitDigits(): string {
+    this.skip();
+    let s = "";
+    if (!/[0-9]/.test(this.peek())) {
+      this.err(`expected integer literal, got '${this.peek()}'`);
+    }
+    while (/[0-9]/.test(this.peek())) {
+      s += this.advance();
+    }
+    return s;
   }
 
   private parseIf(p: Pos): Stmt {
