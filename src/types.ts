@@ -21,6 +21,17 @@ export type FitType =
   | { kind: "alias"; mode: "unrestricted"; name: string; members: string[] } // member names are unresolved — look up via ResolveEnv.aliases
   | { kind: "enum"; mode: "linear" | "unrestricted"; name: string };
 
+// The FitType that `/` and `%` produce (§5.3): Result<Int, DivByZero>. Canonical —
+// checker.ts (operand/result typing) and codegen.ts (forcing R_Int_DivByZero's typedef
+// in when it never appears in a signature) both import this rather than each keeping
+// their own literal copy, so the two can't drift out of sync.
+export const DIV_RESULT_TYPE: FitType = {
+  kind: "result",
+  mode: "unrestricted",
+  ok: { kind: "plain", mode: "unrestricted", name: "Int" },
+  err: { kind: "enum", mode: "unrestricted", name: "DivByZero" },
+};
+
 export type EnumInfo = { name: string; isLinear: boolean; variants: { name: string; payload: FitType | null }[] };
 
 export type VariantInfo = { enumName: string; payload: FitType | null };
@@ -264,10 +275,14 @@ export function buildTypeEnv(program: Program): { env: TypeEnv; buildErrors: Bui
   function checkDup(name: string, pos: Pos): boolean {
     const prior = nameOrigins.get(name);
     if (prior) {
-      buildErrors.push({
-        message: `duplicate declaration of '${name}' — declared in ${prior.file}:${prior.line}:${prior.col} and ${pos.file}:${pos.line}:${pos.col}`,
-        pos,
-      });
+      // Built-in names (currently just DivByZero) are registered under a synthetic
+      // "<builtin>:0:0" position — reads like a real location until the fake filename is
+      // noticed. A dedicated message avoids that confusion instead of routing through
+      // the generic duplicate-declaration position formatting.
+      const message = prior.file === "<builtin>"
+        ? `'${name}' is a built-in type and cannot be redeclared`
+        : `duplicate declaration of '${name}' — declared in ${prior.file}:${prior.line}:${prior.col} and ${pos.file}:${pos.line}:${pos.col}`;
+      buildErrors.push({ message, pos });
       return true;
     }
     nameOrigins.set(name, pos);

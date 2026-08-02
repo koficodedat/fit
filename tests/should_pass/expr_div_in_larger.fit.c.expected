@@ -15,18 +15,19 @@ typedef struct {
 
 
 R_Int_DivByZero div_in_larger(Int a, Int b, Int c) {
-  Int _t0 = b;
-  R_Int_DivByZero _t1;
-  if (_t0 == 0) {
-    _t1 = (R_Int_DivByZero){1, {.err = DivByZero_DivByZero}};
+  Int _t0 = a;
+  Int _t1 = b;
+  R_Int_DivByZero _t2;
+  if (_t1 == 0) {
+    _t2 = (R_Int_DivByZero){1, {.err = DivByZero_DivByZero}};
   } else {
-    _t1 = (R_Int_DivByZero){0, {.ok = (a / _t0)}};
+    _t2 = (R_Int_DivByZero){0, {.ok = (_t0 / _t1)}};
   }
-  R_Int_DivByZero _t2 = _t1;
-  if (_t2.tag != 0) {
-    R_Int_DivByZero _err = {1, {.err = _t2.err}};
+  R_Int_DivByZero _t3 = _t2;
+  if (_t3.tag != 0) {
+    R_Int_DivByZero _err = {1, {.err = _t3.err}};
     return _err;
   }
-  return (R_Int_DivByZero){0, {.ok = (_t2.ok + c)}};
+  return (R_Int_DivByZero){0, {.ok = (_t3.ok + c)}};
 }
 

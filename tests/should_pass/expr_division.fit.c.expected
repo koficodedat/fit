@@ -16,33 +16,35 @@ typedef struct {
 
 R_Int_DivByZero div_mod_demo(Int a, Int b) {
   {
-    Int _t0 = b;
-    R_Int_DivByZero _t1;
-    if (_t0 == 0) {
-      _t1 = (R_Int_DivByZero){1, {.err = DivByZero_DivByZero}};
+    Int _t0 = a;
+    Int _t1 = b;
+    R_Int_DivByZero _t2;
+    if (_t1 == 0) {
+      _t2 = (R_Int_DivByZero){1, {.err = DivByZero_DivByZero}};
     } else {
-      _t1 = (R_Int_DivByZero){0, {.ok = (a / _t0)}};
+      _t2 = (R_Int_DivByZero){0, {.ok = (_t0 / _t1)}};
     }
-    R_Int_DivByZero _t2 = _t1;
-    if (_t2.tag != 0) {
-      R_Int_DivByZero _err = {1, {.err = _t2.err}};
+    R_Int_DivByZero _t3 = _t2;
+    if (_t3.tag != 0) {
+      R_Int_DivByZero _err = {1, {.err = _t3.err}};
       return _err;
     }
-    Int q = _t2.ok;
+    Int q = _t3.ok;
     {
-      Int _t3 = b;
-      R_Int_DivByZero _t4;
-      if (_t3 == 0) {
-        _t4 = (R_Int_DivByZero){1, {.err = DivByZero_DivByZero}};
+      Int _t4 = a;
+      Int _t5 = b;
+      R_Int_DivByZero _t6;
+      if (_t5 == 0) {
+        _t6 = (R_Int_DivByZero){1, {.err = DivByZero_DivByZero}};
       } else {
-        _t4 = (R_Int_DivByZero){0, {.ok = (a % _t3)}};
+        _t6 = (R_Int_DivByZero){0, {.ok = (_t4 % _t5)}};
       }
-      R_Int_DivByZero _t5 = _t4;
-      if (_t5.tag != 0) {
-        R_Int_DivByZero _err = {1, {.err = _t5.err}};
+      R_Int_DivByZero _t7 = _t6;
+      if (_t7.tag != 0) {
+        R_Int_DivByZero _err = {1, {.err = _t7.err}};
         return _err;
       }
-      Int r = _t5.ok;
+      Int r = _t7.ok;
       return (R_Int_DivByZero){0, {.ok = (q + r)}};
     }
   }

@@ -1,0 +1,34 @@
+// Regression for the Critical codegen finding: emitDivMod used to splice the left
+// operand's C expression directly inside the `else` (nonzero-divisor) branch of the
+// generated if/else, so a left operand with side effects — specifically a call that
+// consumes (moves) a linear resource — only ran at the C level when the divisor was
+// nonzero. On the divisor == 0 path, the checker had already recorded `c` as
+// unconditionally consumed by `use_conn`, but the generated call never executed: a
+// linear resource opened and never disposed of.
+//
+// `use_conn` both consumes `c` and is this test's stand-in for "the resource was
+// disposed of" (the harness increments a `used` counter inside it). Dividing its result
+// by 0 forces the DivByZero error path — via an explicit `?`, so this also exercises the
+// early-return path the reviewer specifically asked to see covered. If the left operand
+// is (incorrectly) evaluated only on the nonzero-divisor branch, `used` stays 0 and the
+// harness's printed counters diverge from expected_output.
+resource Conn {
+    id: Int,
+    cleanup: close_conn,
+}
+
+fn make_conn() -> Conn
+fn close_conn(c: move Conn) -> ()
+fn use_conn(c: move Conn) -> Int
+fn report() -> ()
+
+fn divide_after_use(c: Conn, n: Int) -> Result<Int, DivByZero> {
+    let q = (use_conn(c) / n)?
+    Ok(q)
+}
+
+fn run() -> () {
+    let c = make_conn()
+    divide_after_use(c, 0)
+    report()
+}

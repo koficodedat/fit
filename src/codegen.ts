@@ -1,5 +1,5 @@
 import { Program, Decl, Stmt, Expr, VariantDef } from "./ast";
-import { FitType, TypeEnv, buildTypeEnv, resolveType } from "./types";
+import { FitType, TypeEnv, buildTypeEnv, resolveType, DIV_RESULT_TYPE } from "./types";
 
 // Maps a FitType to a C type name (for values: struct fields, union members, variables).
 // unit → int (placeholder; use cRetTypeName for function return types).
@@ -116,8 +116,18 @@ function scanLiteralUsage(program: Program): LiteralUsage {
       case "call":
         e.args.forEach(visitExpr);
         return;
-      default:
+      // Leaf nodes with no child expressions to walk — listed explicitly (rather than
+      // falling into a catch-all `default`) so that a future Expr variant with children
+      // fails to compile here instead of silently producing generated C with a missing
+      // typedef (the same class of bug this function exists to close — see the comment
+      // on scanLiteralUsage above).
+      case "var":
+      case "unit_val":
+      case "qualified_var":
         return;
+      default: {
+        const _exhaustive: never = e;
+      }
     }
   }
 
@@ -144,11 +154,13 @@ function scanLiteralUsage(program: Program): LiteralUsage {
         visitExpr(s.expr);
         s.arms.forEach(a => a.body.forEach(visitStmt));
         return;
+      // break/select have no child expressions or statements to walk.
       case "break":
       case "select":
         return;
-      default:
-        return;
+      default: {
+        const _exhaustive: never = s;
+      }
     }
   }
 
@@ -157,15 +169,6 @@ function scanLiteralUsage(program: Program): LiteralUsage {
   }
   return usage;
 }
-
-// The exact FitType division/modulo codegen and checking use for a division result —
-// kept in one place so both agree on the C type name (R_Int_DivByZero).
-const DIV_RESULT_TYPE: FitType = {
-  kind: "result",
-  mode: "unrestricted",
-  ok: { kind: "plain", mode: "unrestricted", name: "Int" },
-  err: { kind: "enum", mode: "unrestricted", name: "DivByZero" },
-};
 
 // Collects all distinct plain type names used across function signatures.
 // Resources, enums, and records are already emitted as structs/enums — excluded here.
@@ -264,6 +267,13 @@ export function codegen(program: Program): string {
   // Int/Bool literals and binops may be used purely locally (e.g. `let x = 1 < 2`)
   // without Int/Bool ever appearing in any function signature — force them in when
   // that happens, or the generated C references an undefined type. See scanLiteralUsage.
+  // This unconditional `typedef int Int;` would collide with a user `resource Int
+  // {...}`'s own struct typedef (both named "Int") — that's only safe because
+  // codegen() is never reached for a program that fails check() (main.ts gates codegen
+  // on check() passing first), and the checker's isInt (checker.ts, the `binop` case)
+  // rejects a resource named "Int" used as an arithmetic operand, which is the only way
+  // literalUsage.needsInt gets set for a program that also declares `resource Int`. If
+  // that checker guarantee ever weakens, this typedef becomes a silent C name collision.
   if (literalUsage.needsInt && !plainNames.includes("Int")) {
     plainNames.push("Int");
   }
@@ -919,9 +929,22 @@ function emitExpr(
 }
 
 // Division/modulo push statements onto `out` exactly as the "try" case does (§1.3):
-// a temp for the once-evaluated divisor, a zero-check, and construction of the Ok/Err
-// Result value — then the temp itself (not `.ok`) is returned as cExpr, so a wrapping
-// `?` (the existing, unmodified "try" case) unwraps it exactly as it does for a call.
+// temps for the once-evaluated left operand and divisor, a zero-check, and construction
+// of the Ok/Err Result value — then the temp itself (not `.ok`) is returned as cExpr, so
+// a wrapping `?` (the existing, unmodified "try" case) unwraps it exactly as it does for
+// a call.
+//
+// Both operands are bound to their own temps *before* the zero-check, in source
+// (left-to-right) order, and the branch below uses only the temps — never
+// left.cExpr/right.cExpr directly. This matters beyond the usual "evaluate once" reason
+// division/modulo already had for the divisor: if left.cExpr is itself a call that moves
+// a linear resource (e.g. `use_conn(c) / n` where `use_conn` takes `c: move Conn`),
+// splicing it inline inside the `else` branch means the call — and the move the checker
+// already recorded as unconditional — would only execute when the divisor is nonzero.
+// The checker never emits cleanup for `c` (it's consumed), so on the `n == 0` path `c`
+// would be opened and never closed: a linear resource leak reachable from a
+// checker-accepted program. Binding left to a temp unconditionally, ahead of the
+// zero-check, makes the C match what the checker already assumes.
 function emitDivMod(
   expr: Expr & { kind: "binop" },
   depth: number,
@@ -932,6 +955,12 @@ function emitDivMod(
 ): { cExpr: string; fitType: FitType } {
   const left = emitExpr(expr.left, depth, ctx, retType, state, out);
   const right = emitExpr(expr.right, depth, ctx, retType, state, out);
+
+  // Bind the left operand to its own temp, unconditionally, before the divisor and the
+  // zero-check — see the function comment above for why this must not be deferred into
+  // the `else` branch below.
+  const leftTmp = `_t${state.tmp.n++}`;
+  out.push(`${ind(depth)}Int ${leftTmp} = ${left.cExpr};`);
 
   // Bind the divisor to its own temp before the zero-check — otherwise the check and
   // the division/modulo each evaluate `right` again, which is wrong if it has side
@@ -946,7 +975,7 @@ function emitDivMod(
   out.push(`${ind(depth + 1)}${resultTmp} = (${resultCType}){1, {.err = DivByZero_DivByZero}};`);
   out.push(`${ind(depth)}} else {`);
   out.push(
-    `${ind(depth + 1)}${resultTmp} = (${resultCType}){0, {.ok = (${left.cExpr} ${expr.op} ${divisorTmp})}};`
+    `${ind(depth + 1)}${resultTmp} = (${resultCType}){0, {.ok = (${leftTmp} ${expr.op} ${divisorTmp})}};`
   );
   out.push(`${ind(depth)}}`);
 
