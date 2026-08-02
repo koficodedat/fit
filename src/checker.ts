@@ -1,5 +1,5 @@
 import { Program, Stmt, Expr, Pos } from "./ast";
-import { FitType, TypeEnv, buildTypeEnv, resolveVariant } from "./types";
+import { FitType, TypeEnv, buildTypeEnv, resolveVariant, DIV_RESULT_TYPE } from "./types";
 
 export type CheckError = { message: string; pos: Pos };
 
@@ -18,6 +18,14 @@ export function check(program: Program): CheckError[] {
   return errors;
 }
 
+// KNOWN GAP (filed, not fixed this round): this function never compares the tail
+// expression's (or any `return`-shaped statement's) type against sig.returnType — there
+// is no general return-type compatibility check anywhere in the checker, only the
+// linear-discard check below and the resource/typestate/capability checks done per
+// expression. `/` and `%` make this newly reachable: `fn h(a: Int, b: Int) -> Int { let
+// x = a / b   x }` returns a Result<Int, DivByZero> where Int is declared, checks clean,
+// and produces C that fails to compile. See the matching note at the call-argument loop
+// in checkExpr's "call" case, and tests/should_pass/expr_div_result_type_gap.fit.
 function checkFn(fnName: string, body: Stmt[], fnPos: Pos, env: TypeEnv, errors: CheckError[]): void {
   const scope: Scope = new Map();
   const caps: CapScope = new Set();
@@ -412,6 +420,19 @@ function checkExpr(
         }
       }
 
+      // KNOWN GAP (filed, not fixed this round): argType above is computed but never
+      // compared against param.type_ in general — only resource typestate is checked
+      // (below). This checker has never done general call-argument type-compatibility
+      // checking, so it's not new to this round in the abstract, but `/` and `%` are the
+      // first construct whose static type (Result<Int, DivByZero>) doesn't match what it
+      // superficially looks like at a call site, which makes the gap newly reachable:
+      // `take(a / get()?)` where `take(n: Int)` checks clean even though the argument is
+      // a Result, not an Int, and the generated C fails to compile. Building general
+      // argument-type checking is a separate, much larger concern (the checker doesn't do
+      // it anywhere else); a narrow Result-vs-plain-only fix here would be an inconsistent
+      // partial implementation of something not attempted elsewhere. See
+      // tests/should_pass/expr_div_result_type_gap.fit for a program that documents this
+      // exact hole (title notwithstanding, it is filed as *incorrectly* passing).
       for (let i = 0; i < sig.params.length; i++) {
         const param = sig.params[i];
         const arg = expr.args[i];
@@ -514,12 +535,7 @@ function checkExpr(
         // §5.3: division/modulo are partial — they return Result<Int, DivByZero>,
         // not Int, so a caller must unwrap with `?` (or match) before using the value
         // as an Int. DivByZero is the built-in enum registered in buildTypeEnv.
-        return {
-          kind: "result",
-          mode: "unrestricted",
-          ok: { kind: "plain", mode: "unrestricted", name: "Int" },
-          err: { kind: "enum", mode: "unrestricted", name: "DivByZero" },
-        };
+        return DIV_RESULT_TYPE;
       }
       if (expr.op === "+" || expr.op === "-" || expr.op === "*") {
         return { kind: "plain", mode: "unrestricted", name: "Int" };

@@ -1,0 +1,25 @@
+// KNOWN GAP — this program documents a real hole in the checker, filed rather than
+// fixed this round. It is in should_pass because that is what the checker currently
+// (incorrectly) does with it, NOT because this file's shape is actually sound.
+//
+// `a / b` is a Result<Int, DivByZero>, not an Int (§5.3). The checker catches this when
+// a division result is used directly as a binop operand without `?` (see
+// tests/should_fail/expr_div_no_try.fit), but it has no general call-argument or
+// return-type compatibility check — only resource typestate is checked at call sites,
+// and tail-expression/return types are never compared to the declared return type at
+// all (see the "KNOWN GAP" comments in src/checker.ts, near checkFn and near the
+// call-argument loop in checkExpr's "call" case).
+//
+// So `take(a / b)` below checks with zero errors, even though `take` expects an Int and
+// receives a Result<Int, DivByZero>. `fit codegen` on this file produces C that fails to
+// compile under `-Werror` (passing a struct where an int is expected). Building general
+// argument/return type-checking is out of scope for this round — it's a separate, much
+// larger concern the checker has never attempted anywhere else, and a narrow fix just
+// for Result-vs-plain would be an inconsistent partial implementation of that larger
+// concern. This file exists so a future round doesn't have to rediscover the gap from
+// scratch.
+fn take(n: Int) -> ()
+
+fn bad_call(a: Int, b: Int) -> () {
+    take(a / b)
+}
