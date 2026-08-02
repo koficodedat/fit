@@ -1619,4 +1619,18 @@ describe("? error-type compatibility (§7)", () => {
     expect(errors.length).toBeGreaterThan(0);
     expect(errors.some((e) => e.message.includes("does not return Result"))).toBe(true);
   });
+
+  // Regression: a resource named "Int" must not satisfy the arithmetic isInt()
+  // check just because it shares a name with the built-in plain Int type.
+  // isInt used to be `"name" in t && t.name === "Int"`, which also matches
+  // { kind: "resource", name: "Int" } (and alias/enum). Fixed to require
+  // `t.kind === "plain"`.
+  it("resource named 'Int' used as an arithmetic operand is rejected, not silently accepted", () => {
+    const src = fs.readFileSync(
+      path.join(__dirname, "should_fail", "expr_shadowed_int_type.fit"),
+      "utf-8"
+    );
+    const errors = check(parse(src, "expr_shadowed_int_type.fit"));
+    expect(errors.some((e) => e.message === "left operand of '+' must be Int")).toBe(true);
+  });
 });

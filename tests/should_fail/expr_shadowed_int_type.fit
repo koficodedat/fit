@@ -1,0 +1,18 @@
+// A resource named "Int" shares its name with the built-in plain Int type
+// literals and arithmetic/comparison results use. isInt-style checks must
+// distinguish { kind: "plain", name: "Int" } from { kind: "resource",
+// name: "Int" } — a resource is a linear value, not an arithmetic operand,
+// even though it happens to be named "Int".
+resource Int {
+    cleanup: free_it,
+}
+
+fn free_it(x: move Int) -> ()
+fn make_int() -> Int
+
+fn f() -> () {
+    let w = make_int()
+    let x = w + 1
+    drop(x)
+    free_it(w)
+}

@@ -503,7 +503,7 @@ function checkExpr(
       const rightType = checkExpr(expr.right, scope, caps, env, enclosingErr, enclosingFn, errors);
       // §5.2 leaves equality on non-Int types an open design question — this
       // implements Int equality only, uniformly with arithmetic and ordering.
-      const isInt = (t: FitType): boolean => "name" in t && t.name === "Int";
+      const isInt = (t: FitType): boolean => t.kind === "plain" && t.name === "Int";
       if (!isInt(leftType)) {
         errors.push({ message: `left operand of '${expr.op}' must be Int`, pos: expr.pos });
       }
