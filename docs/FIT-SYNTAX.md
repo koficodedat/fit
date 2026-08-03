@@ -229,6 +229,8 @@ primary        ::= "(" ")"                                    ; unit value
 
 Every rule level is left-associative — a chain of same-level operators folds left (`a - b - c` is `(a - b) - c`), never right.
 
+The grammar admits `?` after every primary, including a literal — `parseTry` runs once per primary production regardless of what it just parsed, so `5?` and `true?` parse. Both are meaningless in practice: the checker's `"try"` case requires the inner expression to type as `Result<_, _>`, and no literal ever does, so both are rejected — `'?' applied to non-Result type`. The grammar's permissiveness here is a byproduct of where `parseTry` sits, not a claim that `?` on a literal means anything.
+
 ### 5.2 Precedence (tightest first)
 
 | Level | Operators | Associativity |
@@ -258,7 +260,9 @@ All eleven require both operands to type as `Int` — including `==`/`!=`; equal
 | `<` `>` `<=` `>=` `==` `!=` | `Bool` | |
 | `/` `%` | `Result<Int, DivByZero>` | **Partial — not `Int`.** See below. |
 
-**Division and modulo are partial operators.** `a / b` and `a % b` yield `Result<Int, DivByZero>`, not `Int` — using the result where an `Int` is expected without `?` (or a `match`) is a compile error (`left/right operand of '<op>' must be Int`, since the result itself, unwidened, doesn't type as `Int`). `DivByZero` is the built-in enum from §2.2. The divisor is evaluated exactly once, and — as of the fix in `5998702` — so is the left operand, unconditionally, before the zero-check; an earlier version of this codegen only evaluated the left operand on the nonzero-divisor path, which meant a left operand consuming a linear resource leaked it whenever the divisor was zero.
+**Division and modulo are partial operators.** `a / b` and `a % b` yield `Result<Int, DivByZero>`, not `Int`. `DivByZero` is the built-in enum from §2.2. The divisor is evaluated exactly once, and — as of the fix in `5998702` — so is the left operand, unconditionally, before the zero-check; an earlier version of this codegen only evaluated the left operand on the nonzero-divisor path, which meant a left operand consuming a linear resource leaked it whenever the divisor was zero.
+
+**Using the unwrapped result where an `Int` is expected is caught only when it feeds another binary operator, not generally.** `(a / b) + c` is rejected — `left operand of '+' must be Int` — because the `+` case checks both its operands. But the checker has no general call-argument or return-type compatibility check anywhere — not specific to division, and not otherwise documented in this reference: `take(a / b)` where `take(n: Int)` checks with **zero errors**, and a `let`-bound division result later returned or passed on is equally unchecked. Both produce C that fails to compile. This is not a narrow edge case — a call argument and a return position are at least as common as feeding another operator, and only the operator case is caught. `?` (or a `match`) is required to use a division/modulo result as an `Int` in any position; the checker only enforces that requirement in one of the positions where it matters.
 
 ```fit
 fn div_mod_demo(a: Int, b: Int) -> Result<Int, DivByZero> {
