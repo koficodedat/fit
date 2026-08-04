@@ -1,0 +1,17 @@
+fn get_flag() -> Bool
+fn get_count() -> Int
+
+fn branches(n: Int) -> () {
+    if true {
+    } else {
+    }
+    if get_flag() {
+    } else {
+    }
+    if n > 0 {
+    } else {
+    }
+    if (n + 1) == 2 {
+    } else {
+    }
+}

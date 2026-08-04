@@ -10,7 +10,7 @@ resource Conn {
 
 fn open_conn() -> Conn
 fn close_conn(c: move Conn) -> ()
-fn should_stop() -> Int
+fn should_stop() -> Bool
 fn done() -> ()
 
 fn double_cleanup_if() -> () {

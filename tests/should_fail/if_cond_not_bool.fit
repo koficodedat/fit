@@ -1,0 +1,7 @@
+fn get_count() -> Int
+
+fn bad(n: Int) -> () {
+    if get_count() {
+    } else {
+    }
+}

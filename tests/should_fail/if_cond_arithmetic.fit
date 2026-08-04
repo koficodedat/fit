@@ -1,0 +1,5 @@
+fn bad(n: Int) -> () {
+    if n + 1 {
+    } else {
+    }
+}

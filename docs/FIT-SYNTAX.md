@@ -282,9 +282,9 @@ fn div_mod_demo(a: Int, b: Int) -> Result<Int, DivByZero> {
 
 `?` is checked once, immediately after each primary is parsed — before any binary operator at that position is considered. Consequently `a / b?` parses as `a / (b?)` (`?` applies to `b` alone, which must itself be a `Result`), not `(a / b)?`. This falls out of `parseTry`'s position in the grammar without any operator-precedence special-casing for `?` specifically; layering the binary-operator levels above primary parsing was sufficient (`FIT-analysis-try-precedence.md` §1.1).
 
-### 5.7 `if` accepts any expression type
+### 5.7 `if` condition must type as `Bool`
 
-`if`'s condition is any `expr` — the checker does not currently require it to type as `Bool` (open question, §12.3).
+`if`'s condition must type as `Bool`. A condition of any other type is a compile error: `if condition must be Bool, got '<type>'`, positioned at the condition expression. See §5.4 for what produces `Bool` — the comparison operators (`<` `>` `<=` `>=` `==` `!=`) — and §5.3 for the `true`/`false` literals.
 
 ---
 
@@ -476,7 +476,6 @@ Additive whenever scheduled; nothing about the current design prevents adding th
 
 ### 12.3 Open questions — blocked on a decision, not built, question stated
 
-- **`if` condition typing.** Comparison operators yield `Bool` (§5.4), but `if`'s condition currently accepts any expression type — `should_stop`, an extern used as a condition across different test programs, is declared returning `Int` in one, `String` in another, `Bool` in a third, all accepted identically. **The decision: require the condition to type as `Bool` — which breaks the three existing programs that pass a non-`Bool` condition today — or leave it unconstrained.** A round is scheduled.
 - **Equality on non-`Int` types.** `==`/`!=` are implemented for `Int` operands only (§5.4). **The decision: extend equality to `Bool`, to enums (which would need per-variant comparison, not a one-line change), to plain types generally — or leave equality Int-only.** Not settled by this document.
 - **Capability duplicate-instance resolution.** `FIT-SPEC-v2.md` §5 describes strict single-capability-per-type resolution; the current name-presence model has no way to represent two distinct instances of one capability type coexisting, so the rule may be currently unreachable rather than unenforced (§7). **The question: does v0.1's capability model need to represent multiple instances at all, or is the spec describing a later capability model?** Not resolved here.
 

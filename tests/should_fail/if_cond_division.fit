@@ -1,0 +1,5 @@
+fn bad(a: Int, b: Int) -> () {
+    if a / b {
+    } else {
+    }
+}

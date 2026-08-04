@@ -307,7 +307,7 @@ describe("branch exhaustiveness", () => {
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
       fn use_foo(f: move Foo) -> ()
-      fn cond() -> String
+      fn cond() -> Bool
       fn test() -> () {
         let f = make_foo()
         if cond() {
@@ -343,7 +343,7 @@ describe("branch exhaustiveness", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn cond() -> String
+      fn cond() -> Bool
       fn test() -> () {
         let f = make_foo()
         if cond() {
@@ -868,7 +868,7 @@ describe("capability checker gap coverage", () => {
   it("select in then-branch does NOT grant atom in else-branch (bug fix verification)", () => {
     const src = `
       capability Fs
-      fn cond_fn() -> String
+      fn cond_fn() -> Bool
       fn needs_read() using Read -> ()
       fn do_read() using Fs -> () {
         if cond_fn() {
@@ -1505,7 +1505,7 @@ describe("edge cases", () => {
     const src = `
       resource Foo { cleanup: drop_foo }
       fn make_foo() -> Foo
-      fn cond() -> String
+      fn cond() -> Bool
       fn test() -> () {
         let f = make_foo()
         if cond() {
@@ -1550,7 +1550,7 @@ describe("edge cases", () => {
     // select inside a nested if-then-else: atom available in that arm only.
     const src = `
       capability Fs
-      fn cond_check() -> String
+      fn cond_check() -> Bool
       fn needs_read() using Read -> ()
       fn do_work() using Fs -> () {
         select Read from Fs

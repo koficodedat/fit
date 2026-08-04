@@ -3,6 +3,22 @@ import { FitType, TypeEnv, buildTypeEnv, resolveVariant, DIV_RESULT_TYPE } from 
 
 export type CheckError = { message: string; pos: Pos };
 
+// Display helper for error messages. FitType variants don't uniformly carry `name`
+// (`result` and `unit` don't) — this picks a readable rendering for each.
+function typeNameOf(t: FitType): string {
+  switch (t.kind) {
+    case "plain":
+    case "resource":
+    case "alias":
+    case "enum":
+      return t.name;
+    case "unit":
+      return "()";
+    case "result":
+      return `Result<${typeNameOf(t.ok)}, ${typeNameOf(t.err)}>`;
+  }
+}
+
 type Binding = { type_: FitType; owned: boolean; moved: boolean };
 type Scope = Map<string, Binding>;
 type CapScope = Set<string>;
@@ -104,7 +120,13 @@ function checkStmt(
       break;
     }
     case "if": {
-      checkExpr(stmt.cond, scope, caps, env, enclosingErr, enclosingFn, errors);
+      const condType = checkExpr(stmt.cond, scope, caps, env, enclosingErr, enclosingFn, errors);
+      if (!(condType.kind === "plain" && condType.name === "Bool")) {
+        errors.push({
+          message: `if condition must be Bool, got '${typeNameOf(condType)}'`,
+          pos: stmt.cond.pos,
+        });
+      }
       const thenScope = cloneScope(scope);
       const elseScope = cloneScope(scope);
       checkStmts(stmt.then, thenScope, cloneCaps(caps), env, enclosingErr, enclosingFn, errors);

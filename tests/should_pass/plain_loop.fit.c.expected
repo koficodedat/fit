@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 typedef int String;
+typedef int Bool;
 
 typedef struct {
   int sock;
@@ -15,7 +16,7 @@ typedef enum {
 
 extern void send_msg(Conn c, String msg);
 extern String get_msg(void);
-extern String should_stop(void);
+extern Bool should_stop(void);
 
 void send_loop(Conn c) {
   while (1) {

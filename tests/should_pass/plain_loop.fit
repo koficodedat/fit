@@ -7,7 +7,7 @@ resource Conn<S> {
 
 fn send_msg(c: lend Conn<Ready>, msg: String) -> ()
 fn get_msg() -> String
-fn should_stop() -> String
+fn should_stop() -> Bool
 
 fn send_loop(c: Conn<Ready>) -> () {
     loop {
